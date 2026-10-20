@@ -1,0 +1,320 @@
+
+/* =========================================
+   LỊCH RẢNH PT - FITZONE
+========================================= */
+
+/* GIỚI THIỆU */
+
+.pt-schedule-intro {
+    margin-bottom: 26px;
+}
+
+.pt-schedule-intro h2 {
+    margin-bottom: 10px;
+}
+
+.pt-schedule-intro > p:last-child {
+    max-width: 700px;
+    line-height: 1.7;
+}
+
+/* THỐNG KÊ */
+
+.pt-schedule-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+    margin-bottom: 28px;
+}
+
+.pt-stat-card {
+    padding: 22px;
+    background: #fff;
+    border: 1px solid #e9edf3;
+    border-radius: 16px;
+    box-shadow: 0 4px 15px rgba(20, 35, 60, 0.03);
+}
+
+.pt-stat-card p {
+    margin: 0 0 10px;
+    color: #687386 !important;
+    font-size: 14px;
+    opacity: 1;
+}
+
+.pt-stat-card h3 {
+    margin: 0;
+    color: #172b4d;
+    font-size: 28px;
+    font-weight: 700;
+}
+
+/* KHU VỰC DANH SÁCH LỊCH */
+
+.schedule-section {
+    margin-top: 26px;
+}
+
+.schedule-section .section-heading {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.schedule-section .section-heading h2 {
+    margin: 0 0 7px;
+    color: #172b4d;
+    font-size: 20px;
+    font-weight: 700;
+}
+
+.schedule-section .section-heading p {
+    margin: 0;
+    color: #687386;
+    font-size: 13px;
+}
+
+/* BỘ LỌC TRẠNG THÁI */
+
+.pt-filter {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.pt-filter a {
+    display: inline-block;
+    padding: 9px 16px;
+    border: 1px solid #e0e5ec;
+    border-radius: 9px;
+    background: #fff;
+    color: #475467;
+    font-size: 14px;
+    text-decoration: none;
+    transition: background 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.pt-filter a:hover {
+    border-color: #172b4d;
+    color: #172b4d;
+}
+
+.pt-filter a.active {
+    background: #172b4d;
+    border-color: #172b4d;
+    color: #fff;
+}
+
+/* BẢNG LỊCH TRÊN MÁY TÍNH */
+
+.schedule-table-wrap {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    background: #fff;
+    border: 1px solid #e9edf3;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(20, 35, 60, 0.03);
+}
+
+.schedule-table {
+    width: 100%;
+    min-width: 850px;
+    margin: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: #fff;
+}
+
+.schedule-table th,
+.schedule-table td {
+    padding: 15px 12px;
+    text-align: left;
+    vertical-align: middle;
+    border-bottom: 1px solid #edf0f5;
+    white-space: nowrap;
+}
+
+.schedule-table th {
+    background: #f8fafc;
+    color: #344054;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.schedule-table td {
+    color: #475467;
+    font-size: 14px;
+}
+
+.schedule-table tbody tr:hover {
+    background: #f8fafc;
+}
+
+.schedule-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+/* TRẠNG THÁI LỊCH */
+
+.pt-status {
+    display: inline-block;
+    padding: 6px 11px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.pt-status.available {
+    background: #e5f7ed;
+    color: #167647;
+}
+
+.pt-status.booked {
+    background: #feeceb;
+    color: #b42318;
+}
+
+/* NÚT ĐẶT LỊCH */
+
+.pt-booking-button {
+    display: inline-block;
+    padding: 8px 13px;
+    border: none;
+    border-radius: 8px;
+    background: #172b4d;
+    color: #fff;
+    font-size: 13px;
+    text-align: center;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background 0.2s;
+}
+
+.pt-booking-button:hover {
+    background: #29466f;
+    color: #fff;
+}
+
+.pt-booking-button.disabled {
+    background: #e4e7ec;
+    color: #98a2b3;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+/* KHÔNG CÓ DỮ LIỆU */
+
+.pt-empty-state {
+    padding: 35px 20px;
+    color: #687386;
+    text-align: center;
+}
+
+/* MẶC ĐỊNH ẨN THẺ LỊCH TRÊN MÁY TÍNH */
+
+.schedule-mobile-list {
+    display: none;
+}
+
+/* THẺ LỊCH TRÊN ĐIỆN THOẠI */
+
+.pt-mobile-card {
+    padding: 18px;
+    margin-bottom: 15px;
+    border: 1px solid #e9edf3;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: 0 4px 15px rgba(20, 35, 60, 0.03);
+}
+
+.schedule-mobile-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+.schedule-mobile-top > strong {
+    color: #172b4d;
+    font-size: 15px;
+}
+
+.pt-mobile-card p {
+    margin: 12px 0;
+    color: #475467;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+.pt-mobile-card p strong {
+    color: #172b4d;
+}
+
+.pt-mobile-card .pt-booking-button {
+    display: block;
+    width: 100%;
+    margin-top: 15px;
+}
+
+/* RESPONSIVE - TABLET */
+
+@media (max-width: 992px) {
+    .pt-schedule-stats {
+        gap: 12px;
+    }
+
+    .pt-stat-card {
+        padding: 18px;
+    }
+
+    .schedule-table {
+        min-width: 850px;
+    }
+}
+
+/* RESPONSIVE - ĐIỆN THOẠI */
+
+@media (max-width: 768px) {
+    .pt-schedule-stats {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .pt-stat-card {
+        padding: 18px;
+    }
+
+    .pt-stat-card h3 {
+        font-size: 24px;
+    }
+
+    .pt-filter {
+        gap: 8px;
+    }
+
+    .pt-filter a {
+        padding: 8px 12px;
+        font-size: 13px;
+    }
+
+    /* Ẩn bảng, chỉ hiện thẻ lịch */
+    .schedule-table-wrap {
+        display: none;
+    }
+
+    .schedule-mobile-list {
+        display: block;
+    }
+
+    .schedule-section .section-heading h2 {
+        font-size: 18px;
+    }
+}
