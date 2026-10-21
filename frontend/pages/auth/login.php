@@ -1,9 +1,30 @@
-
 <?php
-// Trang đăng nhập giao diện mẫu.
-// Chưa kết nối backend; xử lý đăng nhập sẽ được bổ sung sau.
+
+require_once __DIR__ . '/../../../backend/controllers/AuthController.php';
+
 $pageTitle = "Đăng nhập";
+$errorMessage = "";
+
+// Nếu đã đăng nhập thì chuyển đến Dashboard
+if (isLoggedIn()) {
+    header("Location: ../member/dashboard.php");
+    exit;
+}
+
+// Xử lý khi người dùng gửi form đăng nhập
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $controller = new AuthController();
+    $result = $controller->login();
+
+    if ($result['success']) {
+        header("Location: ../member/dashboard.php");
+        exit;
+    }
+
+    $errorMessage = $result['message'];
+}
 ?>
+
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -78,8 +99,12 @@ $pageTitle = "Đăng nhập";
                         Đăng nhập <span aria-hidden="true">→</span>
                     </button>
 
-                    <p class="form-feedback" id="loginFeedback"
-                       role="status" aria-live="polite"></p>
+                    <p class="form-feedback <?= $errorMessage !== '' ? 'error' : '' ?>"
+                    id="loginFeedback"
+                    role="status"
+                    aria-live="polite">
+                        <?= htmlspecialchars($errorMessage, ENT_QUOTES, 'UTF-8') ?>
+                    </p>
                 </form>
 
                 <p class="auth-switch">

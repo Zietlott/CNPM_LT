@@ -1,7 +1,15 @@
-
 <?php
+require_once __DIR__ . '/../../../backend/helpers/auth.php';
+
+// Nếu chưa đăng nhập thì chuyển về trang Login
+if (!isLoggedIn()) {
+    header('Location: ../auth/login.php');
+    exit;
+}
+
 $pageTitle = "Trang chủ";
 ?>
+
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -63,7 +71,7 @@ $pageTitle = "Trang chủ";
         </nav>
 
         <div class="sidebar-bottom">
-            <a href="../auth/login.php" class="nav-item logout-link">
+            <a href="../auth/logout.php" class="nav-item logout-link">
                 <span class="nav-icon">↪</span>
                 <span>Đăng xuất</span>
             </a>

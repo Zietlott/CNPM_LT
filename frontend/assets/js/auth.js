@@ -9,23 +9,16 @@ document.addEventListener("DOMContentLoaded", () => {
         element.className = `form-feedback ${type}`;
     }
 
+    
     if (loginForm) {
         loginForm.addEventListener("submit", (event) => {
-            event.preventDefault();
             if (!loginForm.checkValidity()) {
+                event.preventDefault();
                 loginForm.reportValidity();
-                return;
             }
-            showMessage(
-                document.getElementById("loginFeedback"),
-                "Đăng nhập thành công! Đang chuyển hướng vào hệ thống...",
-                "success"
-            );
-            setTimeout(() => {
-                window.location.href = "../member/dashboard.php";
-            }, 800);
         });
     }
+
 
     if (registerForm) {
         registerForm.addEventListener("submit", (event) => {
