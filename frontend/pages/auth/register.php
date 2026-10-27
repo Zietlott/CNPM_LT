@@ -1,8 +1,37 @@
-
 <?php
-// Trang đăng ký giao diện mẫu.
-// Chưa lưu tài khoản vào database; sẽ tích hợp API sau.
+require_once __DIR__ . '/../../../backend/controllers/AuthController.php';
+
 $pageTitle = "Đăng ký";
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    $password = $_POST['password'] ?? '';
+    $confirmPassword = $_POST['confirm_password'] ?? '';
+
+    if ($password !== $confirmPassword) {
+        echo json_encode([
+            'success' => false,
+            'message' => 'Mật khẩu xác nhận không khớp.'
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    try {
+        $controller = new AuthController();
+        $result = $controller->register();
+
+        echo json_encode($result, JSON_UNESCAPED_UNICODE);
+    } catch (Throwable $e) {
+        error_log($e->getMessage());
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Không thể tạo tài khoản. Vui lòng kiểm tra kết nối database.'
+        ], JSON_UNESCAPED_UNICODE);
+    }
+    exit;
+}
 ?>
 <!DOCTYPE html>
 <html lang="vi">
