@@ -211,7 +211,17 @@ FROM trainer_schedule s
 JOIN personal_trainer t ON t.trainer_id = s.trainer_id
 WHERE t.is_active = 1
   AND s.status = 'available'
-  AND s.work_date >= CURRENT_DATE();
+  AND s.work_date >= CURRENT_DATE()
+  AND NOT EXISTS (
+      SELECT 1
+      FROM booking b
+      JOIN trainer_schedule occupied ON occupied.schedule_id = b.schedule_id
+      WHERE b.status IN ('pending', 'confirmed')
+        AND occupied.trainer_id = s.trainer_id
+        AND occupied.work_date = s.work_date
+        AND occupied.start_time < s.end_time
+        AND occupied.end_time > s.start_time
+  );
 
 -- Danh sách booking đầy đủ thông tin (hội viên + PT + thời gian).
 CREATE VIEW v_booking_detail AS
@@ -280,7 +290,11 @@ INSERT INTO trainer_schedule (schedule_id, trainer_id, work_date, start_time, en
 (11, 4, '2026-10-22', '07:00:00', '08:00:00', 'available'),
 (12, 4, '2026-10-25', '16:00:00', '17:00:00', 'available'),   -- từng bị hủy => đã trả lại slot
 (13, 3, '2026-10-25', '09:00:00', '10:00:00', 'unavailable'), -- PT nghỉ
-(14, 1, '2026-10-19', '08:00:00', '09:00:00', 'booked');      -- slot quá khứ, buổi đã hoàn thành
+(14, 1, '2026-10-19', '08:00:00', '09:00:00', 'booked'),      -- slot quá khứ, buổi đã hoàn thành
+(15, 1, DATE_ADD(CURRENT_DATE, INTERVAL 1 DAY), '07:00:00', '08:00:00', 'available'),
+(16, 2, DATE_ADD(CURRENT_DATE, INTERVAL 1 DAY), '09:00:00', '10:00:00', 'available'),
+(17, 3, DATE_ADD(CURRENT_DATE, INTERVAL 2 DAY), '15:00:00', '16:00:00', 'available'),
+(18, 4, DATE_ADD(CURRENT_DATE, INTERVAL 2 DAY), '16:00:00', '17:00:00', 'available');
 
 -- Đủ 4 trạng thái chính: confirmed, pending, cancelled, completed
 INSERT INTO booking (booking_id, member_id, schedule_id, membership_id, note, status, cancel_reason) VALUES
