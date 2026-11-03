@@ -34,7 +34,7 @@ $csrfToken = getCsrfToken();
             <a href="trainer.php" class="nav-item"><span class="nav-icon">♙</span><span>Huấn luyện viên</span></a>
             <a href="booking.php" class="nav-item active"><span class="nav-icon">▦</span><span>Đặt lịch tập</span></a>
             <a href="schedule.php" class="nav-item"><span class="nav-icon">◷</span><span>Lịch PT</span></a>
-            <a href="../member/profile.php" class="nav-item"><span class="nav-icon">⚙</span><span>Thông tin cá nhân</span></a>
+            <a href="profile.php" class="nav-item"><span class="nav-icon">⚙</span><span>Thông tin cá nhân</span></a>
         </nav>
         <div class="sidebar-bottom">
             <a href="../auth/login.php" class="nav-item logout-link"><span class="nav-icon">↪</span><span>Đăng xuất</span></a>

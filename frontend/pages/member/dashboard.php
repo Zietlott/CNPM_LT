@@ -63,7 +63,7 @@ $pageTitle = "Trang chủ";
                 <span>Lịch PT</span>
             </a>
 
-            <a href="profile.php" class="nav-item">
+            <a href="../trainer/profile.php" class="nav-item">
                 <span class="nav-icon">⚙</span>
                 <span>Thông tin cá nhân</span>
             </a>
@@ -219,7 +219,7 @@ $pageTitle = "Trang chủ";
                     </a>
 
 
-                    <a href="profile.php" class="quick-card">
+                    <a href="../trainer/profile.php" class="quick-card">
                         <span class="quick-icon">⚙</span>
 
                         <div>

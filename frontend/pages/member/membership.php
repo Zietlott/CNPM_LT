@@ -87,7 +87,7 @@ $memberships = [
                 <span class="nav-icon">◷</span>
                 <span>Lịch PT</span>
             </a>
-            <a href="profile.php" class="nav-item">
+            <a href="../trainer/profile.php" class="nav-item">
                 <span class="nav-icon">⚙</span>
                 <span>Thông tin cá nhân</span>
             </a>
