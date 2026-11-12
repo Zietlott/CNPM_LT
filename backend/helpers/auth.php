@@ -123,6 +123,18 @@ function isMember(): bool
     return hasRole('member');
 }
 
+// Kiểm tra người dùng có phải Personal Trainer không
+function isTrainer(): bool
+{
+    return hasRole('trainer');
+}
+
+// Kiểm tra người dùng có phải Staff không
+function isStaff(): bool
+{
+    return hasRole('staff');
+}
+
 
 /**
  * Tạo hoặc lấy CSRF token của session hiện tại.
@@ -148,5 +160,4 @@ function verifyCsrfToken(?string $token): bool
         && $token !== ''
         && hash_equals(getCsrfToken(), $token);
 }
-
 

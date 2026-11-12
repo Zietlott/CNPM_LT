@@ -177,16 +177,50 @@ try {
         )
     );
 
-    $cutoffSlot = (new DateTimeImmutable('now'))->modify('+12 hours');
-    $cutoffHour = (int) $cutoffSlot->format('H');
+    $databaseNow = new DateTimeImmutable(
+        $db->query('SELECT CURRENT_TIMESTAMP')->fetchColumn()
+    );
+    $cutoffSlot = $databaseNow->setTime(
+        (int) $databaseNow->format('H'),
+        0
+    )->modify('+1 hour');
+    $cutoffSchedule = null;
+    for ($hourOffset = 0; $hourOffset < 24; $hourOffset++) {
+        $candidate = $cutoffSlot->modify('+' . $hourOffset . ' hours');
+        $candidateDate = $candidate->format('Y-m-d');
+        $candidateStart = $candidate->format('H:i:s');
+        $candidateEnd = $candidate->modify('+1 hour')->format('H:i:s');
+        if ($candidateEnd === '00:00:00') {
+            continue;
+        }
 
-    if ($cutoffHour === 23) {
-        $cutoffHour = 22;
+        $stmt = $db->prepare(
+            'SELECT COUNT(*)
+             FROM trainer_schedule
+             WHERE trainer_id = 3
+               AND work_date = :work_date
+               AND start_time < :end_time
+               AND end_time > :start_time'
+        );
+        $stmt->execute([
+            'work_date' => $candidateDate,
+            'end_time' => $candidateEnd,
+            'start_time' => $candidateStart
+        ]);
+        if ((int) $stmt->fetchColumn() === 0) {
+            $cutoffSchedule = [
+                'work_date' => $candidateDate,
+                'start_time' => $candidateStart,
+                'end_time' => $candidateEnd
+            ];
+            break;
+        }
     }
 
-    $cutoffWorkDate = $cutoffSlot->format('Y-m-d');
-    $cutoffStartTime = sprintf('%02d:00:00', $cutoffHour);
-    $cutoffEndTime = sprintf('%02d:00:00', $cutoffHour + 1);
+    if ($cutoffSchedule === null) {
+        throw new RuntimeException('Không tìm được giờ trống để test mốc hủy.');
+    }
+
     $stmt = $db->prepare(
         "INSERT INTO trainer_schedule
             (trainer_id, work_date, start_time, end_time, status)
@@ -194,9 +228,9 @@ try {
             (3, :work_date, :start_time, :end_time, 'available')"
     );
     $stmt->execute([
-        'work_date' => $cutoffWorkDate,
-        'start_time' => $cutoffStartTime,
-        'end_time' => $cutoffEndTime
+        'work_date' => $cutoffSchedule['work_date'],
+        'start_time' => $cutoffSchedule['start_time'],
+        'end_time' => $cutoffSchedule['end_time']
     ]);
     $scheduleIds[] = (int) $db->lastInsertId();
     $bookingIds[] = $service->createBooking(
@@ -234,6 +268,10 @@ try {
 } finally {
     foreach ($bookingIds as $bookingId) {
         $stmt = $db->prepare('DELETE FROM notification WHERE booking_id = :booking_id');
+        $stmt->execute(['booking_id' => $bookingId]);
+        $stmt = $db->prepare('DELETE FROM booking_audit_log WHERE booking_id = :booking_id');
+        $stmt->execute(['booking_id' => $bookingId]);
+        $stmt = $db->prepare('DELETE FROM booking_change_request WHERE booking_id = :booking_id');
         $stmt->execute(['booking_id' => $bookingId]);
         $stmt = $db->prepare('DELETE FROM booking WHERE booking_id = :booking_id');
         $stmt->execute(['booking_id' => $bookingId]);

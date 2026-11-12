@@ -17,6 +17,9 @@ SET FOREIGN_KEY_CHECKS = 0;
 
 DROP VIEW  IF EXISTS v_available_slots;
 DROP VIEW  IF EXISTS v_booking_detail;
+DROP TABLE IF EXISTS booking_staff_permission;
+DROP TABLE IF EXISTS booking_audit_log;
+DROP TABLE IF EXISTS booking_change_request;
 DROP TABLE IF EXISTS notification;
 DROP TABLE IF EXISTS booking;
 DROP TABLE IF EXISTS trainer_schedule;
@@ -39,7 +42,7 @@ CREATE TABLE member (
     email         VARCHAR(150) NOT NULL,
     phone         VARCHAR(20)  NOT NULL,
     password_hash VARCHAR(255) NOT NULL,                       -- password_hash() của PHP, KHÔNG lưu mật khẩu thô
-    role          ENUM('member','admin') NOT NULL DEFAULT 'member',
+    role          ENUM('member','trainer','staff','admin') NOT NULL DEFAULT 'member',
     status        ENUM('active','locked') NOT NULL DEFAULT 'active',
     created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -116,6 +119,7 @@ CREATE TABLE payment (
 
 CREATE TABLE personal_trainer (
     trainer_id       INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    member_id        INT UNSIGNED NULL,
     full_name        VARCHAR(100) NOT NULL,
     specialty        VARCHAR(100) NOT NULL,                    -- vd: Strength Training
     experience_years TINYINT UNSIGNED NOT NULL DEFAULT 0,      -- giao diện hiển thị "5 năm kinh nghiệm"
@@ -125,7 +129,10 @@ CREATE TABLE personal_trainer (
     is_active        TINYINT(1) NOT NULL DEFAULT 1,            -- 0 = PT nghỉ việc, ẩn khỏi giao diện
     created_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (trainer_id),
-    KEY idx_trainer_active (is_active)
+    UNIQUE KEY uq_trainer_member (member_id),
+    KEY idx_trainer_active (is_active),
+    CONSTRAINT fk_trainer_member FOREIGN KEY (member_id) REFERENCES member (member_id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
 ) ENGINE=InnoDB;
 
 -- Mỗi dòng = 1 khung giờ làm việc (1 slot) của 1 PT trong 1 ngày.
@@ -185,6 +192,8 @@ CREATE TABLE notification (
     member_id       INT UNSIGNED NOT NULL,                     -- người nhận
     booking_id      INT UNSIGNED NULL,                         -- có thể NULL nếu thông báo không liên quan booking
     type            ENUM('booking_created','booking_confirmed','booking_rejected','booking_cancelled',
+                         'booking_completed','booking_change_requested','booking_change_approved',
+                         'booking_change_rejected',
                          'payment_success','membership_activated','membership_expiring','membership_expired',
                          'system') NOT NULL,
     title           VARCHAR(150) NOT NULL,
@@ -197,6 +206,65 @@ CREATE TABLE notification (
         ON UPDATE CASCADE ON DELETE CASCADE,
     CONSTRAINT fk_notification_booking FOREIGN KEY (booking_id) REFERENCES booking (booking_id)
         ON UPDATE CASCADE ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+-- Yêu cầu đổi lịch được lưu riêng; booking hiện tại tiếp tục giữ slot đến khi PT duyệt.
+CREATE TABLE booking_change_request (
+    request_id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    booking_id            INT UNSIGNED NOT NULL,
+    requested_by_member_id INT UNSIGNED NOT NULL,
+    requested_schedule_id INT UNSIGNED NOT NULL,
+    reason                VARCHAR(255) NOT NULL,
+    status                ENUM('pending','approved','rejected','cancelled') NOT NULL DEFAULT 'pending',
+    reviewed_by_member_id INT UNSIGNED NULL,
+    reviewed_at           DATETIME NULL,
+    decision_reason       VARCHAR(255) NULL,
+    active_booking_id     INT UNSIGNED
+        GENERATED ALWAYS AS (IF(status = 'pending', booking_id, NULL)) STORED,
+    created_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at            TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (request_id),
+    UNIQUE KEY uq_booking_change_active (active_booking_id),
+    KEY idx_booking_change_booking_status (booking_id, status),
+    KEY idx_booking_change_schedule_status (requested_schedule_id, status),
+    CONSTRAINT fk_booking_change_booking FOREIGN KEY (booking_id) REFERENCES booking (booking_id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+    CONSTRAINT fk_booking_change_requester FOREIGN KEY (requested_by_member_id) REFERENCES member (member_id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+    CONSTRAINT fk_booking_change_schedule FOREIGN KEY (requested_schedule_id) REFERENCES trainer_schedule (schedule_id)
+        ON UPDATE RESTRICT ON DELETE RESTRICT,
+    CONSTRAINT fk_booking_change_reviewer FOREIGN KEY (reviewed_by_member_id) REFERENCES member (member_id)
+        ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB;
+
+-- Nhật ký lưu actor và lý do cho các thay đổi booking.
+CREATE TABLE booking_audit_log (
+    audit_id        INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    booking_id      INT UNSIGNED NOT NULL,
+    actor_member_id INT UNSIGNED NULL,
+    action          VARCHAR(50) NOT NULL,
+    reason          VARCHAR(255) NULL,
+    before_data     JSON NULL,
+    after_data      JSON NULL,
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (audit_id),
+    KEY idx_booking_audit_booking (booking_id, created_at),
+    KEY idx_booking_audit_actor (actor_member_id, created_at),
+    CONSTRAINT fk_booking_audit_booking FOREIGN KEY (booking_id) REFERENCES booking (booking_id)
+        ON UPDATE CASCADE ON DELETE RESTRICT,
+    CONSTRAINT fk_booking_audit_actor FOREIGN KEY (actor_member_id) REFERENCES member (member_id)
+        ON UPDATE CASCADE ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+-- Staff mặc định không được xử lý booking; Admin phải cấp từng quyền tường minh.
+CREATE TABLE booking_staff_permission (
+    member_id   INT UNSIGNED NOT NULL,
+    can_confirm TINYINT(1) NOT NULL DEFAULT 0,
+    can_cancel  TINYINT(1) NOT NULL DEFAULT 0,
+    updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (member_id),
+    CONSTRAINT fk_booking_staff_permission_member FOREIGN KEY (member_id) REFERENCES member (member_id)
+        ON UPDATE CASCADE ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 -- =============================================================================
@@ -278,10 +346,10 @@ INSERT INTO personal_trainer (trainer_id, full_name, specialty, experience_years
 
 INSERT INTO trainer_schedule (schedule_id, trainer_id, work_date, start_time, end_time, status) VALUES
 ( 1, 1, '2026-10-21', '08:00:00', '09:00:00', 'available'),
-( 2, 2, '2026-10-21', '09:00:00', '10:00:00', 'booked'),
+( 2, 2, '2026-10-21', '09:00:00', '10:00:00', 'available'),
 ( 3, 2, '2026-10-22', '15:00:00', '16:00:00', 'available'),
 ( 4, 3, '2026-10-23', '09:00:00', '10:00:00', 'available'),
-( 5, 4, '2026-10-24', '14:00:00', '15:00:00', 'booked'),
+( 5, 4, '2026-10-24', '14:00:00', '15:00:00', 'available'),
 ( 6, 1, '2026-10-25', '08:00:00', '09:00:00', 'available'),
 ( 7, 1, '2026-10-21', '07:00:00', '08:00:00', 'available'),
 ( 8, 1, '2026-10-22', '16:00:00', '17:00:00', 'available'),

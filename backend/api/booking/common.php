@@ -24,11 +24,23 @@ function bookingRequireMethod(string $method): void
 
 function bookingRequireMember(): void
 {
-    if (!isMember()) {
+    bookingRequireRole('member');
+}
+
+function bookingRequireRole(string $role): void
+{
+    if (!isLoggedIn()) {
         bookingRespond([
             'success' => false,
-            'message' => 'Bạn cần đăng nhập bằng tài khoản hội viên.'
+            'message' => 'Bạn cần đăng nhập để tiếp tục.'
         ], 401);
+    }
+
+    if (!isset($_SESSION['role']) || $_SESSION['role'] !== $role) {
+        bookingRespond([
+            'success' => false,
+            'message' => 'Bạn không có quyền thực hiện thao tác này.'
+        ], 403);
     }
 }
 

@@ -7,7 +7,12 @@ $errorMessage = "";
 
 // Nếu đã đăng nhập thì chuyển đến Dashboard
 if (isLoggedIn()) {
-    header("Location: ../member/dashboard.php");
+    $destination = match ($_SESSION['role'] ?? 'member') {
+        'admin', 'staff' => '../admin/bookings.php',
+        'trainer' => '../trainer/pt-bookings.php',
+        default => '../member/dashboard.php'
+    };
+    header('Location: ' . $destination);
     exit;
 }
 
@@ -17,7 +22,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $result = $controller->login();
 
     if ($result['success']) {
-        header("Location: ../member/dashboard.php");
+        $destination = match ($result['user']['role']) {
+            'admin', 'staff' => '../admin/bookings.php',
+            'trainer' => '../trainer/pt-bookings.php',
+            default => '../member/dashboard.php'
+        };
+        header('Location: ' . $destination);
         exit;
     }
 

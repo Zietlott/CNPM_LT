@@ -201,6 +201,108 @@
     background: #fef2f2;
 }
 
+.booking-actions {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+}
+
+.booking-change-button,
+.booking-change-cancel-button {
+    padding: 8px 12px;
+    border: 1px solid #bbf7d0;
+    border-radius: 7px;
+    background: #fff;
+    color: #15803d;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.booking-change-button:hover,
+.booking-change-cancel-button:hover {
+    background: #f0fdf4;
+}
+
+.booking-change-cancel-button {
+    border-color: #d1d5db;
+    color: #4b5563;
+}
+
+.booking-change-pending {
+    max-width: 260px;
+    margin: 0;
+    color: #92400e;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.booking-dialog {
+    width: min(520px, calc(100% - 28px));
+    max-width: 520px;
+    padding: 0;
+    border: 0;
+    border-radius: 14px;
+    box-shadow: 0 24px 70px rgba(15, 23, 42, 0.25);
+}
+
+.booking-dialog::backdrop {
+    background: rgba(15, 23, 42, 0.5);
+}
+
+.booking-dialog form {
+    padding: 24px;
+}
+
+.booking-dialog-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 20px;
+}
+
+.booking-dialog-heading h2 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 800;
+}
+
+.booking-dialog-close {
+    width: 34px;
+    height: 34px;
+    border: 0;
+    border-radius: 50%;
+    background: #f3f4f6;
+    color: #374151;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+.booking-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.booking-dialog-actions .booking-submit-button {
+    width: auto;
+}
+
+.booking-dialog-secondary {
+    padding: 10px 15px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #fff;
+    color: #374151;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
 .booking-list-empty {
     margin: 0;
     padding: 18px 20px;
@@ -257,9 +359,163 @@
     line-height: 1.7;
 }
 
+.booking-management-section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.booking-management-heading {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 18px;
+}
+
+.booking-management-heading h2 {
+    margin: 0;
+    font-size: 21px;
+    font-weight: 800;
+}
+
+.booking-management-heading .banner-label {
+    margin-bottom: 7px;
+}
+
+.booking-management-description {
+    max-width: 760px;
+    margin: -7px 0 0;
+    color: #6b7280;
+    font-size: 13px;
+    line-height: 1.6;
+}
+
+.booking-access-form,
+.trainer-schedule-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    padding: 20px;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    background: #fff;
+}
+
+.booking-access-form .form-label,
+.trainer-schedule-form .form-label {
+    color: #374151;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.booking-access-form .form-control,
+.booking-access-form .form-select,
+.trainer-schedule-form .form-control {
+    min-height: 42px;
+    border-color: #dbe1e8;
+    border-radius: 8px;
+    font-size: 13px;
+}
+
+.booking-management-button,
+.booking-management-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 38px;
+    padding: 9px 13px;
+    border: 0;
+    border-radius: 8px;
+    background: #16a34a;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: center;
+    cursor: pointer;
+}
+
+.booking-management-button:hover {
+    background: #15803d;
+    color: #fff;
+}
+
+.booking-management-secondary {
+    border: 1px solid #d1d5db;
+    background: #fff;
+    color: #374151;
+}
+
+.booking-management-secondary:hover {
+    background: #f9fafb;
+}
+
+.booking-access-form > .booking-management-button,
+.trainer-schedule-form-actions {
+    align-self: end;
+}
+
+.booking-permission-check,
+.booking-inline-permission {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #4b5563;
+    font-size: 13px;
+}
+
+.booking-permission-check {
+    min-height: 38px;
+}
+
+.booking-inline-permission {
+    font-size: 12px;
+}
+
+.booking-permission-check input,
+.booking-inline-permission input {
+    accent-color: #16a34a;
+}
+
+.booking-admin-filters {
+    align-items: flex-end;
+}
+
+.booking-filter-label {
+    display: grid;
+    gap: 6px;
+    min-width: 190px;
+    color: #4b5563;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.booking-filter-label .form-select {
+    min-height: 40px;
+    font-size: 13px;
+}
+
+.trainer-schedule-form {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.trainer-schedule-form-actions {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+}
+
+.booking-staff-list {
+    margin-top: 4px;
+}
+
 @media (max-width: 1000px) {
     .booking-layout {
         grid-template-columns: 1fr;
+    }
+
+    .booking-access-form,
+    .trainer-schedule-form {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 
@@ -272,5 +528,30 @@
     .booking-list-item {
         flex-direction: column;
         padding: 16px;
+    }
+
+    .booking-actions {
+        align-items: flex-start;
+        width: 100%;
+    }
+
+    .booking-dialog form {
+        padding: 20px;
+    }
+
+    .booking-management-heading,
+    .booking-admin-filters {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .booking-access-form,
+    .trainer-schedule-form {
+        grid-template-columns: 1fr;
+        padding: 16px;
+    }
+
+    .booking-filter-label {
+        width: 100%;
     }
 }

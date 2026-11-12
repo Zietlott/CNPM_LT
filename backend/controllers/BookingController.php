@@ -45,12 +45,195 @@ class BookingController
         );
     }
 
+    public function createMyChangeRequest(
+        int $bookingId,
+        int $scheduleId,
+        string $reason
+    ): int {
+        return $this->service->createChangeRequest(
+            $this->requireRole('member'),
+            $bookingId,
+            $scheduleId,
+            $reason
+        );
+    }
+
+    public function cancelMyChangeRequest(int $bookingId, int $requestId): void
+    {
+        $this->service->cancelChangeRequest(
+            $this->requireRole('member'),
+            $bookingId,
+            $requestId
+        );
+    }
+
+    public function getMyTrainerBookings(): array
+    {
+        return $this->service->getTrainerBookings($this->requireRole('trainer'));
+    }
+
+    public function getMyTrainerSchedules(): array
+    {
+        return $this->service->getTrainerSchedules($this->requireRole('trainer'));
+    }
+
+    public function createMyTrainerSchedule(
+        string $workDate,
+        string $startTime,
+        string $endTime
+    ): int {
+        return $this->service->createTrainerSchedule(
+            $this->requireRole('trainer'),
+            $workDate,
+            $startTime,
+            $endTime
+        );
+    }
+
+    public function updateMyTrainerSchedule(
+        int $scheduleId,
+        string $workDate,
+        string $startTime,
+        string $endTime
+    ): void {
+        $this->service->updateTrainerSchedule(
+            $this->requireRole('trainer'),
+            $scheduleId,
+            $workDate,
+            $startTime,
+            $endTime
+        );
+    }
+
+    public function deactivateMyTrainerSchedule(int $scheduleId): void
+    {
+        $this->service->deactivateTrainerSchedule(
+            $this->requireRole('trainer'),
+            $scheduleId
+        );
+    }
+
+    public function handleMyTrainerBooking(
+        int $bookingId,
+        string $action,
+        string $reason = ''
+    ): void {
+        $this->service->updateTrainerBooking(
+            $this->requireRole('trainer'),
+            $bookingId,
+            $action,
+            $reason
+        );
+    }
+
+    public function reviewMyChangeRequest(
+        int $bookingId,
+        int $requestId,
+        bool $approve,
+        string $reason = ''
+    ): void {
+        $this->service->reviewChangeRequest(
+            $this->requireRole('trainer'),
+            $bookingId,
+            $requestId,
+            $approve,
+            $reason
+        );
+    }
+
+    public function getAdminBookings(?string $status = null): array
+    {
+        $this->requireRole('admin');
+
+        return $this->service->getAdminBookings($status);
+    }
+
+    public function getMyStaffBookings(): array
+    {
+        return $this->service->getStaffBookings($this->requireRole('staff'));
+    }
+
+    public function handleAdminBooking(
+        int $bookingId,
+        string $action,
+        string $reason
+    ): void {
+        $actorId = $this->requireRole('admin');
+        $this->service->updateBookingAsAdmin($actorId, $bookingId, $action, $reason);
+    }
+
+    public function handleStaffBooking(
+        int $bookingId,
+        string $action,
+        string $reason
+    ): void {
+        $actorId = $this->requireRole('staff');
+        $this->service->updateBookingAsStaff($actorId, $bookingId, $action, $reason);
+    }
+
+    public function getAdminBookingAccessData(): array
+    {
+        $this->requireRole('admin');
+
+        return $this->service->getAdminBookingAccessData();
+    }
+
+    public function createTrainerAccount(
+        int $trainerId,
+        string $email,
+        string $phone,
+        string $password
+    ): int {
+        $this->requireRole('admin');
+
+        return $this->service->createTrainerAccount(
+            $trainerId,
+            $email,
+            $phone,
+            $password
+        );
+    }
+
+    public function createStaffAccount(
+        string $fullName,
+        string $email,
+        string $phone,
+        string $password,
+        bool $canConfirm,
+        bool $canCancel
+    ): int {
+        $this->requireRole('admin');
+
+        return $this->service->createStaffAccount(
+            $fullName,
+            $email,
+            $phone,
+            $password,
+            $canConfirm,
+            $canCancel
+        );
+    }
+
+    public function updateStaffPermissions(
+        int $staffId,
+        bool $canConfirm,
+        bool $canCancel
+    ): void {
+        $this->requireRole('admin');
+        $this->service->updateStaffPermissions($staffId, $canConfirm, $canCancel);
+    }
+
     private function requireMemberId(): int
     {
-        if (!isMember()) {
+        return $this->requireRole('member');
+    }
+
+    private function requireRole(string $role): int
+    {
+        if (!hasRole($role)) {
             throw new BookingException(
-                'Bạn cần đăng nhập bằng tài khoản hội viên.',
-                'MEMBER_AUTHENTICATION_REQUIRED',
+                'Bạn không có quyền thực hiện thao tác này.',
+                'BOOKING_FORBIDDEN',
                 401
             );
         }

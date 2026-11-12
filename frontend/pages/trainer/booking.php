@@ -137,6 +137,46 @@ $csrfToken = getCsrfToken();
                 </div>
             </section>
 
+            <dialog id="changeBookingDialog" class="booking-dialog">
+                <form id="changeBookingForm">
+                    <div class="booking-dialog-heading">
+                        <div>
+                            <p class="banner-label">RESCHEDULE REQUEST</p>
+                            <h2>Yêu cầu đổi lịch</h2>
+                        </div>
+                        <button type="button" class="booking-dialog-close"
+                                data-close-dialog aria-label="Đóng">×</button>
+                    </div>
+                    <input type="hidden" id="changeBookingId">
+                    <div class="mb-3">
+                        <label for="changeTrainer" class="form-label">Huấn luyện viên hiện tại</label>
+                        <select id="changeTrainer" class="form-select" disabled></select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="changeDate" class="form-label">Ngày mới</label>
+                        <input type="date" id="changeDate" class="form-control" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="changeSlot" class="form-label">Khung giờ mới</label>
+                        <select id="changeSlot" class="form-select" required>
+                            <option value="">-- Chọn ngày trước --</option>
+                        </select>
+                    </div>
+                    <div class="mb-4">
+                        <label for="changeReason" class="form-label">Lý do đổi lịch</label>
+                        <textarea id="changeReason" class="form-control" maxlength="255"
+                                  rows="3" required></textarea>
+                    </div>
+                    <div class="booking-dialog-actions">
+                        <button type="button" class="booking-dialog-secondary"
+                                data-close-dialog>Đóng</button>
+                        <button type="submit" class="booking-submit-button">
+                            Gửi yêu cầu <span>→</span>
+                        </button>
+                    </div>
+                </form>
+            </dialog>
+
             <footer class="dashboard-footer">
                 © <?= date("Y") ?> FitZone. All rights reserved.
             </footer>
@@ -154,6 +194,11 @@ document.addEventListener("DOMContentLoaded", function () {
     const trainerSelect = document.getElementById("trainer");
     const timeSlotSelect = document.getElementById("timeSlot");
     const bookingList = document.getElementById("myBookings");
+    const changeDialog = document.getElementById("changeBookingDialog");
+    const changeForm = document.getElementById("changeBookingForm");
+    const changeTrainerSelect = document.getElementById("changeTrainer");
+    const changeDateInput = document.getElementById("changeDate");
+    const changeSlotSelect = document.getElementById("changeSlot");
     const csrfToken = document.getElementById("bookingCsrfToken").value;
     const apiBase = "../../../backend/api/booking/";
     const statusLabels = {
@@ -163,6 +208,7 @@ document.addEventListener("DOMContentLoaded", function () {
         cancelled: "Đã hủy",
         completed: "Đã hoàn thành"
     };
+    let trainers = [];
 
     async function requestJson(url, options = {}) {
         const response = await fetch(url, options);
@@ -206,13 +252,16 @@ document.addEventListener("DOMContentLoaded", function () {
 
     async function loadTrainers() {
         const data = await requestJson(apiBase + "availability.php");
+        trainers = data.trainers;
         trainerSelect.innerHTML = '<option value="">-- Chọn huấn luyện viên --</option>';
+        changeTrainerSelect.innerHTML = "";
 
         data.trainers.forEach(function (trainer) {
             const option = document.createElement("option");
             option.value = trainer.trainer_id;
             option.textContent = trainer.full_name + " · " + trainer.specialty;
             trainerSelect.appendChild(option);
+            changeTrainerSelect.appendChild(option.cloneNode(true));
         });
 
         if (data.trainers.length === 0) {
@@ -221,30 +270,38 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     async function loadSlots() {
-        const trainerId = trainerSelect.value;
-        const workDate = dateInput.value;
-        timeSlotSelect.innerHTML = '<option value="">-- Chọn khung giờ --</option>';
+        await loadSlotsFor(
+            trainerSelect.value,
+            dateInput.value,
+            timeSlotSelect,
+            "-- Chọn khung giờ --"
+        );
+    }
 
-        if (!trainerId || !workDate) {
-            return;
-        }
+    async function loadSlotsFor(trainerId, workDate, select, placeholder) {
+        select.innerHTML = "";
+        const defaultOption = document.createElement("option");
+        defaultOption.value = "";
+        defaultOption.textContent = placeholder;
+        select.appendChild(defaultOption);
+
+        if (!trainerId || !workDate) return;
 
         const params = new URLSearchParams({
             trainer_id: trainerId,
             work_date: workDate
         });
         const data = await requestJson(apiBase + "availability.php?" + params.toString());
-
         data.slots.forEach(function (slot) {
             const option = document.createElement("option");
             option.value = slot.schedule_id;
             option.textContent =
                 slot.start_time.slice(0, 5) + " - " + slot.end_time.slice(0, 5);
-            timeSlotSelect.appendChild(option);
+            select.appendChild(option);
         });
 
         if (data.slots.length === 0) {
-            timeSlotSelect.options[0].textContent = "Ngày này không còn khung giờ trống";
+            defaultOption.textContent = "Ngày này không còn khung giờ trống";
         }
     }
 
@@ -271,6 +328,21 @@ document.addEventListener("DOMContentLoaded", function () {
                 ? '<button type="button" class="booking-cancel-button" data-cancel-id="' +
                     escapeHtml(booking.booking_id) + '">Hủy lịch</button>'
                 : "";
+            const changeRequest = booking.pending_change_request_id
+                ? '<p class="booking-change-pending">Đang chờ PT duyệt đổi lịch: ' +
+                    escapeHtml(booking.pending_change_request_reason) +
+                    '</p><button type="button" class="booking-change-cancel-button" data-cancel-change-id="' +
+                    escapeHtml(booking.booking_id) + '" data-request-id="' +
+                    escapeHtml(booking.pending_change_request_id) +
+                    '">Rút yêu cầu đổi lịch</button>'
+                : "";
+            const changeButton = !booking.pending_change_request_id
+                && Number(booking.can_request_change) === 1
+                ? '<button type="button" class="booking-change-button" data-change-id="' +
+                    escapeHtml(booking.booking_id) + '" data-trainer-id="' +
+                    escapeHtml(booking.trainer_id) + '" data-work-date="' +
+                    escapeHtml(booking.work_date) + '">Đổi lịch</button>'
+                : "";
 
             return '<article class="booking-list-item">' +
                 '<div class="booking-list-item-main">' +
@@ -286,7 +358,9 @@ document.addEventListener("DOMContentLoaded", function () {
                         escapeHtml(booking.start_time.slice(0, 5)) + " - " +
                         escapeHtml(booking.end_time.slice(0, 5)) +
                     "</p>" + note + cancellation +
-                "</div>" + cancelButton +
+                "</div><div class=\"booking-actions\">" +
+                    changeRequest + changeButton + cancelButton +
+                "</div>" +
             "</article>";
         }).join("");
     }
@@ -355,6 +429,50 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 
     bookingList.addEventListener("click", async function (event) {
+        const changeButton = event.target.closest("[data-change-id]");
+        if (changeButton) {
+            document.getElementById("changeBookingId").value = changeButton.dataset.changeId;
+            changeTrainerSelect.value = changeButton.dataset.trainerId;
+            changeDateInput.min = localDate;
+            changeDateInput.value = changeButton.dataset.workDate;
+            document.getElementById("changeReason").value = "";
+            changeDialog.showModal();
+            try {
+                await loadSlotsFor(
+                    changeTrainerSelect.value,
+                    changeDateInput.value,
+                    changeSlotSelect,
+                    "-- Chọn khung giờ mới --"
+                );
+            } catch (error) {
+                showFeedback(error.message, true);
+            }
+            return;
+        }
+
+        const cancelChangeButton = event.target.closest("[data-cancel-change-id]");
+        if (cancelChangeButton) {
+            try {
+                await requestJson(apiBase + "change-request-action.php", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "X-CSRF-Token": csrfToken
+                    },
+                    body: JSON.stringify({
+                        booking_id: cancelChangeButton.dataset.cancelChangeId,
+                        request_id: cancelChangeButton.dataset.requestId,
+                        action: "cancel"
+                    })
+                });
+                await loadBookings();
+                showFeedback("Đã rút yêu cầu đổi lịch.");
+            } catch (error) {
+                showFeedback(error.message, true);
+            }
+            return;
+        }
+
         const cancelButton = event.target.closest("[data-cancel-id]");
 
         if (!cancelButton || !window.confirm("Bạn có chắc muốn hủy lịch tập này?")) {
@@ -388,6 +506,55 @@ document.addEventListener("DOMContentLoaded", function () {
             showFeedback(error.message, true);
             cancelButton.disabled = false;
         }
+    });
+
+    changeDateInput.addEventListener("change", async function () {
+        try {
+            await loadSlotsFor(
+                changeTrainerSelect.value,
+                changeDateInput.value,
+                changeSlotSelect,
+                "-- Chọn khung giờ mới --"
+            );
+        } catch (error) {
+            changeSlotSelect.innerHTML = '<option value="">Không thể tải khung giờ</option>';
+            showFeedback(error.message, true);
+        }
+    });
+
+    changeForm.addEventListener("submit", async function (event) {
+        event.preventDefault();
+        if (!changeForm.reportValidity()) return;
+
+        const submitButton = changeForm.querySelector('button[type="submit"]');
+        submitButton.disabled = true;
+        try {
+            await requestJson(apiBase + "change-requests.php", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRF-Token": csrfToken
+                },
+                body: JSON.stringify({
+                    booking_id: document.getElementById("changeBookingId").value,
+                    schedule_id: changeSlotSelect.value,
+                    reason: document.getElementById("changeReason").value
+                })
+            });
+            changeDialog.close();
+            await loadBookings();
+            showFeedback("Đã gửi yêu cầu đổi lịch. Booking cũ vẫn được giữ đến khi PT duyệt.");
+        } catch (error) {
+            showFeedback(error.message, true);
+        } finally {
+            submitButton.disabled = false;
+        }
+    });
+
+    changeDialog.querySelectorAll("[data-close-dialog]").forEach(function (button) {
+        button.addEventListener("click", function () {
+            changeDialog.close();
+        });
     });
 
     loadTrainers().catch(function (error) {
