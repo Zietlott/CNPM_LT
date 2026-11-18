@@ -18,20 +18,30 @@ if (isLoggedIn()) {
 
 // Xử lý khi người dùng gửi form đăng nhập
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $controller = new AuthController();
-    $result = $controller->login();
+    try {
+        $controller = new AuthController();
+        $result = $controller->login();
 
-    if ($result['success']) {
-        $destination = match ($result['user']['role']) {
-            'admin', 'staff' => '../admin/bookings.php',
-            'trainer' => '../trainer/pt-bookings.php',
-            default => '../member/dashboard.php'
-        };
-        header('Location: ' . $destination);
-        exit;
+        if ($result['success']) {
+            $destination = match ($result['user']['role']) {
+                'admin', 'staff' => '../admin/bookings.php',
+                'trainer' => '../trainer/pt-bookings.php',
+                default => '../member/dashboard.php'
+            };
+
+            header('Location: ' . $destination);
+            exit;
+        }
+
+        $errorMessage = $result['message'];
+
+    } catch (Throwable $e) {
+        error_log('Login error: ' . $e->getMessage());
+
+        http_response_code(500);
+
+        $errorMessage = 'Hệ thống đang gặp sự cố. Vui lòng thử lại sau.';
     }
-
-    $errorMessage = $result['message'];
 }
 ?>
 

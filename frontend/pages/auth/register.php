@@ -10,6 +10,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $confirmPassword = $_POST['confirm_password'] ?? '';
 
     if ($password !== $confirmPassword) {
+        http_response_code(400);
+
         echo json_encode([
             'success' => false,
             'message' => 'Mật khẩu xác nhận không khớp.'
@@ -20,6 +22,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
         $controller = new AuthController();
         $result = $controller->register();
+
+        http_response_code($result['success'] ? 200 : 400);
 
         echo json_encode($result, JSON_UNESCAPED_UNICODE);
     } catch (Throwable $e) {

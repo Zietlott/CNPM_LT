@@ -21,7 +21,7 @@ if (!function_exists('getDBConnection')) {
 
         $env = static function (string $key, string $default): string {
             $value = getenv('DB_' . $key);
-            return ($value !== false && $value !== '') ? $value : $default;
+            return ($value !== false) ? $value : $default;
         };
 
         $dsn = sprintf(
