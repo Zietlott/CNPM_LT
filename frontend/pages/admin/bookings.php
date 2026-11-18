@@ -34,9 +34,14 @@ $fullName = $_SESSION['full_name'] ?? ($isAdminUser ? 'Quản trị viên' : 'Nh
             </a>
         </nav>
         <div class="sidebar-bottom">
-            <a href="../auth/logout.php" class="nav-item logout-link">
-                <span class="nav-icon">↪</span><span>Đăng xuất</span>
-            </a>
+            <form action="../auth/logout.php" method="POST" style="margin: 0;">
+                <input type="hidden" name="csrf_token"
+                       value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+                <button type="submit" class="nav-item logout-link"
+                        style="width: 100%; border: none; background: transparent; text-align: left; cursor: pointer; font: inherit;">
+                    <span class="nav-icon">↪</span><span>Đăng xuất</span>
+                </button>
+            </form>
         </div>
     </aside>
 

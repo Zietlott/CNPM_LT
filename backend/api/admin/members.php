@@ -17,6 +17,18 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     exit;
 }
 
+// Người dùng chưa đăng nhập
+if (!isLoggedIn()) {
+    http_response_code(401);
+
+    echo json_encode([
+        'success' => false,
+        'message' => 'Bạn cần đăng nhập để tiếp tục.'
+    ], JSON_UNESCAPED_UNICODE);
+
+    exit;
+}
+
 // Chỉ Admin được xem danh sách hội viên
 if (!isAdmin()) {
     http_response_code(403);
