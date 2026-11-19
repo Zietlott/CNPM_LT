@@ -1,211 +1,379 @@
 <?php
+
 require_once __DIR__ . '/../../../backend/helpers/auth.php';
 
+/* Bảo vệ trang - phải đăng nhập */
 if (!isLoggedIn()) {
     header('Location: ../auth/login.php');
     exit;
 }
 
+$role      = $_SESSION['role'] ?? 'member';
 $csrfToken = getCsrfToken();
+
+/* Biến layout dùng chung */
+$pageTitle   = "Thông tin cá nhân";
+$sidebarRole = $role;
+$activeNav   = 'profile';
+$topbarLabel = match ($role) {
+    'admin'   => 'ADMIN AREA',
+    'staff'   => 'STAFF AREA',
+    'trainer' => 'TRAINER AREA',
+    default   => 'MEMBER AREA',
+};
+$topbarTitle = 'Thông tin cá nhân';
 ?>
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Thông tin cá nhân - FitZone</title>
-    <style>
-        * { box-sizing: border-box; }
+    <meta name="description" content="FitZone – Xem và cập nhật thông tin cá nhân">
+    <title><?= htmlspecialchars($pageTitle, ENT_QUOTES, 'UTF-8') ?> | FitZone</title>
 
-        body {
-            margin: 0;
-            font-family: Arial, sans-serif;
-            background: #f3f5f8;
-            color: #202938;
-        }
-
-        .container {
-            max-width: 680px;
-            margin: 60px auto;
-            padding: 0 20px;
-        }
-
-        .card {
-            background: white;
-            border-radius: 16px;
-            padding: 32px;
-            box-shadow: 0 6px 25px rgba(0,0,0,.06);
-        }
-
-        h1 { margin-top: 0; }
-
-        .subtitle {
-            color: #687385;
-            margin-bottom: 28px;
-        }
-
-        label {
-            display: block;
-            font-weight: bold;
-            margin: 18px 0 8px;
-        }
-
-        input {
-            width: 100%;
-            padding: 12px;
-            border: 1px solid #d6dce5;
-            border-radius: 8px;
-            font-size: 15px;
-        }
-
-        input:disabled {
-            background: #f1f3f5;
-            color: #687385;
-        }
-
-        button {
-            background: #2563eb;
-            color: white;
-            border: 0;
-            border-radius: 8px;
-            padding: 13px 20px;
-            font-weight: bold;
-            cursor: pointer;
-            margin-top: 24px;
-        }
-
-        button:disabled {
-            opacity: .6;
-            cursor: not-allowed;
-        }
-
-        .back {
-            display: inline-block;
-            margin-bottom: 20px;
-            color: #2563eb;
-            text-decoration: none;
-        }
-
-        #message { margin-top: 18px; }
-
-        .success { color: #15803d; }
-        .error { color: #dc2626; }
-    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
+    <link href="../../assets/css/dashboard.css" rel="stylesheet">
+    <link href="../../assets/css/profile.css" rel="stylesheet">
 </head>
-<body>
 
-<div class="container">
-    <a class="back" href="../member/dashboard.php">
-        ← Quay lại Dashboard
-    </a>
+<body class="dashboard-page">
+<div class="dashboard-layout">
 
-    <div class="card">
-        <h1>Thông tin cá nhân</h1>
-        <p class="subtitle">
-            Xem và cập nhật thông tin tài khoản FitZone.
-        </p>
+    <?php include __DIR__ . '/../../layouts/sidebar.php'; ?>
 
-        <form id="profileForm">
-            <label for="full_name">Họ và tên</label>
-            <input id="full_name" type="text"
-                   maxlength="100" required>
+    <div class="main-area">
 
-            <label for="email">Email</label>
-            <input id="email" type="email" disabled>
+        <?php include __DIR__ . '/../../layouts/topbar.php'; ?>
 
-            <label for="phone">Số điện thoại</label>
-            <input id="phone" type="tel"
-                   maxlength="20" required>
+        <main class="dashboard-content">
 
-            <label for="role">Vai trò</label>
-            <input id="role" type="text" disabled>
+            <!-- PAGE INTRO -->
+            <section class="page-intro">
+                <p class="banner-label">ACCOUNT PROFILE</p>
+                <h2>Thông tin cá nhân</h2>
+                <p>Xem chi tiết tài khoản và cập nhật thông tin liên hệ của bạn tại FitZone.</p>
+            </section>
 
-            <label for="created_at">Ngày tạo tài khoản</label>
-            <input id="created_at" type="text" disabled>
+            <!-- FEEDBACK THÔNG BÁO -->
+            <div id="profileFeedback" class="profile-feedback" role="status" aria-live="polite"></div>
 
-            <button id="saveBtn" type="submit">
-                Lưu thay đổi
-            </button>
-        </form>
+            <section class="section-block">
+                <div class="profile-layout">
 
-        <p id="message" role="status" aria-live="polite"></p>
+                    <!-- CỘT TRÁI: THẺ TÓM TẮT HỒ SƠ -->
+                    <aside class="profile-summary-card">
+                        <div class="profile-avatar-wrap">
+                            <div class="profile-avatar" id="summaryAvatar">FZ</div>
+                        </div>
+
+                        <div class="profile-summary-info">
+                            <h3 id="summaryName">Đang tải...</h3>
+                            <span class="profile-role-badge" id="summaryRole">-</span>
+                            <div style="margin-top: 8px;">
+                                <span class="profile-status-badge" id="summaryStatus">Đang hoạt động</span>
+                            </div>
+                        </div>
+
+                        <div class="profile-summary-divider"></div>
+
+                        <div class="profile-summary-list">
+                            <div class="profile-summary-item">
+                                <span class="item-label">Mã tài khoản</span>
+                                <span class="item-value" id="summaryId">#---</span>
+                            </div>
+                            <div class="profile-summary-item">
+                                <span class="item-label">Email liên hệ</span>
+                                <span class="item-value" id="summaryEmail">Đang tải...</span>
+                            </div>
+                            <div class="profile-summary-item">
+                                <span class="item-label">Số điện thoại</span>
+                                <span class="item-value" id="summaryPhone">Đang tải...</span>
+                            </div>
+                            <div class="profile-summary-item">
+                                <span class="item-label">Ngày tham gia</span>
+                                <span class="item-value" id="summaryCreated">-</span>
+                            </div>
+                        </div>
+                    </aside>
+
+                    <!-- CỘT PHẢI: FORM CHỈNH SỬA THÔNG TIN -->
+                    <div class="profile-form-card">
+                        <div class="form-heading">
+                            <h2>Cập nhật thông tin</h2>
+                            <p>Các thông tin có thể chỉnh sửa bao gồm họ tên và số điện thoại.</p>
+                        </div>
+
+                        <form id="profileForm" novalidate>
+                            <div class="profile-form-grid">
+
+                                <!-- Họ và tên -->
+                                <div class="profile-field full-width">
+                                    <label for="fullName" class="form-label">
+                                        <span>Họ và tên <strong class="text-danger">*</strong></span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        id="fullName"
+                                        name="full_name"
+                                        class="form-control"
+                                        required
+                                        maxlength="100"
+                                        minlength="2"
+                                        placeholder="Nhập họ và tên đầy đủ"
+                                        autocomplete="name"
+                                    >
+                                </div>
+
+                                <!-- Số điện thoại -->
+                                <div class="profile-field">
+                                    <label for="phone" class="form-label">
+                                        <span>Số điện thoại <strong class="text-danger">*</strong></span>
+                                    </label>
+                                    <input
+                                        type="tel"
+                                        id="phone"
+                                        name="phone"
+                                        class="form-control"
+                                        required
+                                        pattern="[0-9+() .\-]{9,15}"
+                                        maxlength="20"
+                                        placeholder="Ví dụ: 0901234567"
+                                        autocomplete="tel"
+                                    >
+                                    <span class="form-text">Định dạng số điện thoại từ 9 đến 15 chữ số</span>
+                                </div>
+
+                                <!-- Email (Không đổi) -->
+                                <div class="profile-field">
+                                    <label for="email" class="form-label">
+                                        <span>Địa chỉ email</span>
+                                        <span class="profile-readonly-badge">Cố định</span>
+                                    </label>
+                                    <input
+                                        type="email"
+                                        id="email"
+                                        name="email"
+                                        class="form-control"
+                                        disabled
+                                        readonly
+                                        autocomplete="email"
+                                    >
+                                    <span class="form-text">Dùng làm tên đăng nhập tài khoản</span>
+                                </div>
+
+                                <!-- Vai trò tài khoản -->
+                                <div class="profile-field">
+                                    <label for="roleText" class="form-label">
+                                        <span>Vai trò hệ thống</span>
+                                        <span class="profile-readonly-badge">Phân quyền</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        id="roleText"
+                                        class="form-control"
+                                        disabled
+                                        readonly
+                                    >
+                                </div>
+
+                                <!-- Ngày tạo tài khoản -->
+                                <div class="profile-field">
+                                    <label for="createdAt" class="form-label">
+                                        <span>Ngày kích hoạt</span>
+                                        <span class="profile-readonly-badge">Tự động</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        id="createdAt"
+                                        class="form-control"
+                                        disabled
+                                        readonly
+                                    >
+                                </div>
+
+                            </div>
+
+                            <!-- Nút thao tác -->
+                            <div class="profile-actions">
+                                <button type="submit" class="profile-submit-btn" id="saveBtn">
+                                    <span>Lưu thay đổi</span>
+                                    <span aria-hidden="true">→</span>
+                                </button>
+                                <button type="button" class="profile-cancel-btn" id="resetBtn">
+                                    Khôi phục dữ liệu ban đầu
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+
+                </div>
+            </section>
+
+            <!-- FOOTER DÙNG CHUNG -->
+            <footer class="dashboard-footer">
+                &copy; <?= date('Y') ?> FitZone. All rights reserved.
+            </footer>
+
+        </main>
+
     </div>
+
 </div>
 
+<!-- OVERLAY MOBILE -->
+<div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+<!-- CSRF TOKEN -->
+<input type="hidden" id="pageCsrfToken" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+<script src="../../assets/js/api-client.js"></script>
+<script src="../../assets/js/dashboard.js"></script>
 <script>
-const API_BASE = '/CNPM_LT/backend/api/profile';
-const CSRF_TOKEN = <?= json_encode($csrfToken) ?>;
+document.addEventListener("DOMContentLoaded", () => {
+    const csrfToken = document.getElementById("pageCsrfToken")?.value || "";
+    const api       = new FitzoneAPI("../../../backend/api/", csrfToken);
 
-const form = document.getElementById('profileForm');
-const message = document.getElementById('message');
-const saveBtn = document.getElementById('saveBtn');
+    const feedbackEl    = document.getElementById("profileFeedback");
+    const formEl        = document.getElementById("profileForm");
+    const saveBtn       = document.getElementById("saveBtn");
+    const resetBtn      = document.getElementById("resetBtn");
 
-function showMessage(text, success = false) {
-    message.textContent = text;
-    message.className = success ? 'success' : 'error';
-}
+    const inputName     = document.getElementById("fullName");
+    const inputPhone    = document.getElementById("phone");
+    const inputEmail    = document.getElementById("email");
+    const inputRole     = document.getElementById("roleText");
+    const inputCreated  = document.getElementById("createdAt");
 
-async function loadProfile() {
-    try {
-        const response = await fetch(API_BASE + '/me.php', {
-            credentials: 'same-origin'
-        });
+    const summaryAvatar = document.getElementById("summaryAvatar");
+    const summaryName   = document.getElementById("summaryName");
+    const summaryRole   = document.getElementById("summaryRole");
+    const summaryStatus = document.getElementById("summaryStatus");
+    const summaryId     = document.getElementById("summaryId");
+    const summaryEmail  = document.getElementById("summaryEmail");
+    const summaryPhone  = document.getElementById("summaryPhone");
+    const summaryCreated= document.getElementById("summaryCreated");
 
-        const result = await response.json();
+    let initialProfile = null;
 
-        if (!response.ok || !result.success) {
-            throw new Error(result.message || 'Không tải được thông tin.');
+    const roleNameMap = {
+        admin:   "Quản trị viên",
+        staff:   "Nhân viên",
+        trainer: "Huấn luyện viên",
+        member:  "Hội viên"
+    };
+
+    function showNotice(text, isError = false) {
+        if (!feedbackEl) return;
+        feedbackEl.textContent = text;
+        feedbackEl.classList.toggle("is-error", isError);
+        feedbackEl.classList.add("is-visible");
+        feedbackEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    function hideNotice() {
+        if (!feedbackEl) return;
+        feedbackEl.textContent = "";
+        feedbackEl.classList.remove("is-visible", "is-error");
+    }
+
+    function getInitials(name) {
+        if (!name) return "FZ";
+        const tokens = name.trim().split(/\s+/);
+        if (tokens.length >= 2) {
+            return (tokens[0][0] + tokens[tokens.length - 1][0]).toUpperCase();
+        }
+        return name.slice(0, 2).toUpperCase();
+    }
+
+    function renderProfile(profile) {
+        initialProfile = profile;
+
+        const roleText = roleNameMap[profile.role] || profile.role || "Hội viên";
+        const createdDate = profile.created_at ? FitzoneUI.formatDate(profile.created_at.split(" ")[0]) : "-";
+
+        // Cập nhật form
+        inputName.value    = profile.full_name || "";
+        inputPhone.value   = profile.phone || "";
+        inputEmail.value   = profile.email || "";
+        inputRole.value    = roleText;
+        inputCreated.value = profile.created_at || "";
+
+        // Cập nhật tóm tắt bên trái
+        summaryAvatar.textContent  = getInitials(profile.full_name);
+        summaryName.textContent    = profile.full_name || "-";
+        summaryRole.textContent    = roleText;
+        summaryStatus.textContent  = (profile.status === "active") ? "Đang hoạt động" : "Tạm khóa";
+        summaryId.textContent      = "#" + (profile.member_id || "---");
+        summaryEmail.textContent   = profile.email || "-";
+        summaryPhone.textContent   = profile.phone || "-";
+        summaryCreated.textContent = createdDate;
+
+        // Cập nhật tên hiển thị ở Topbar (nếu có)
+        const topbarNameEl = document.querySelector(".topbar .user-text strong");
+        if (topbarNameEl && profile.full_name) {
+            topbarNameEl.textContent = profile.full_name;
+        }
+    }
+
+    async function fetchProfile() {
+        try {
+            hideNotice();
+            const data = await api.get("profile/me.php");
+            renderProfile(data);
+        } catch (error) {
+            showNotice(error.message || "Không thể tải thông tin hồ sơ.", true);
+        }
+    }
+
+    formEl.addEventListener("submit", async (e) => {
+        e.preventDefault();
+
+        if (!formEl.checkValidity()) {
+            formEl.reportValidity();
+            return;
         }
 
-        const profile = result.data;
+        const fullName = inputName.value.trim();
+        const phone    = inputPhone.value.trim();
 
-        document.getElementById('full_name').value = profile.full_name;
-        document.getElementById('email').value = profile.email;
-        document.getElementById('phone').value = profile.phone;
-        document.getElementById('role').value = profile.role;
-        document.getElementById('created_at').value = profile.created_at;
-
-    } catch (error) {
-        showMessage(error.message);
-    }
-}
-
-form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    saveBtn.disabled = true;
-    showMessage('');
-
-    try {
-        const response = await fetch(API_BASE + '/update.php', {
-            method: 'POST',
-            credentials: 'same-origin',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-Token': CSRF_TOKEN
-            },
-            body: JSON.stringify({
-                full_name: document.getElementById('full_name').value,
-                phone: document.getElementById('phone').value
-            })
-        });
-
-        const result = await response.json();
-
-        if (!response.ok || !result.success) {
-            throw new Error(result.message || 'Cập nhật thất bại.');
+        if (!fullName || !phone) {
+            showNotice("Vui lòng điền đầy đủ họ tên và số điện thoại.", true);
+            return;
         }
 
-        showMessage(result.message, true);
-        await loadProfile();
+        saveBtn.disabled = true;
+        saveBtn.innerHTML = `<span>Đang lưu...</span>`;
+        hideNotice();
 
-    } catch (error) {
-        showMessage(error.message);
-    } finally {
-        saveBtn.disabled = false;
-    }
+        try {
+            const res = await api.post("profile/update.php", {
+                full_name: fullName,
+                phone:     phone
+            });
+
+            showNotice(res?.message || "Cập nhật thông tin cá nhân thành công!", false);
+            await fetchProfile();
+        } catch (error) {
+            showNotice(error.message || "Cập nhật thông tin thất bại. Vui lòng thử lại.", true);
+        } finally {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = `<span>Lưu thay đổi</span> <span aria-hidden="true">→</span>`;
+        }
+    });
+
+    resetBtn.addEventListener("click", () => {
+        if (initialProfile) {
+            renderProfile(initialProfile);
+            showNotice("Đã khôi phục dữ liệu ban đầu.", false);
+        }
+    });
+
+    fetchProfile();
 });
-
-loadProfile();
 </script>
 
 </body>

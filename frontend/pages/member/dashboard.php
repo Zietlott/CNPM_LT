@@ -1,150 +1,75 @@
 <?php
+
 require_once __DIR__ . '/../../../backend/helpers/auth.php';
 
-// Nếu chưa đăng nhập thì chuyển về trang Login
+/* Bảo vệ trang - chỉ member được vào */
 if (!isLoggedIn()) {
     header('Location: ../auth/login.php');
     exit;
 }
 
-$pageTitle = "Trang chủ";
-$csrfToken = getCsrfToken();
-?>
+/* Redirect đúng role nếu không phải member */
+if (!isMember()) {
+    $destination = match ($_SESSION['role'] ?? '') {
+        'admin', 'staff' => '../admin/bookings.php',
+        'trainer'        => '../trainer/pt-bookings.php',
+        default          => '../auth/login.php',
+    };
+    header('Location: ' . $destination);
+    exit;
+}
 
+/* --- Biến layout dùng chung --- */
+$pageTitle   = "Trang chủ";
+$sidebarRole = 'member';
+$activeNav   = 'dashboard';
+$topbarLabel = 'MEMBER AREA';
+$topbarTitle = 'Trang chủ';
+$csrfToken   = getCsrfToken();
+$extraCss    = [];
+$extraJs     = ['../../assets/js/api-client.js'];
+?>
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title><?= htmlspecialchars($pageTitle) ?> | FitZone</title>
+    <meta name="description" content="FitZone – Trang chủ hội viên">
+    <title><?= htmlspecialchars($pageTitle, ENT_QUOTES, 'UTF-8') ?> | FitZone</title>
 
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
-          rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">
     <link href="../../assets/css/dashboard.css" rel="stylesheet">
 </head>
 
 <body class="dashboard-page">
-
 <div class="dashboard-layout">
 
-    <!-- MENU BÊN TRÁI -->
-    <aside class="sidebar" id="sidebar">
+    <?php include __DIR__ . '/../../layouts/sidebar.php'; ?>
 
-        <a href="dashboard.php" class="brand">
-            <span class="brand-mark">F</span>
-            <span>FITZONE</span>
-        </a>
-
-        <p class="menu-label">MENU CHÍNH</p>
-
-        <nav class="sidebar-nav">
-
-            <a href="dashboard.php" class="nav-item active">
-                <span class="nav-icon">⌂</span>
-                <span>Trang chủ</span>
-            </a>
-
-            <a href="membership.php" class="nav-item">
-                <span class="nav-icon">▣</span>
-                <span>Gói hội viên</span>
-            </a>
-
-            <a href="../trainer/trainer.php" class="nav-item">
-                <span class="nav-icon">♙</span>
-                <span>Huấn luyện viên</span>
-            </a>
-
-            <a href="../trainer/booking.php" class="nav-item">
-                <span class="nav-icon">▦</span>
-                <span>Đặt lịch tập</span>
-            </a>
-
-            <a href="../trainer/schedule.php" class="nav-item">
-                <span class="nav-icon">◷</span>
-                <span>Lịch PT</span>
-            </a>
-
-            <a href="../trainer/profile.php" class="nav-item">
-                <span class="nav-icon">⚙</span>
-                <span>Thông tin cá nhân</span>
-            </a>
-
-        </nav>
-
-        <div class="sidebar-bottom">
-            <form action="../auth/logout.php" method="POST" style="margin: 0;">
-                <input type="hidden" name="csrf_token"
-                       value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
-                <button type="submit" class="nav-item logout-link"
-                        style="width: 100%; border: none; background: transparent; text-align: left; cursor: pointer; font: inherit;">
-                    <span class="nav-icon">↪</span>
-                    <span>Đăng xuất</span>
-                </button>
-            </form>
-        </div>
-
-    </aside>
-
-    <!-- KHU VỰC NỘI DUNG -->
     <div class="main-area">
 
-        <!-- THANH TRÊN CÙNG -->
-        <header class="topbar">
-
-            <button
-                type="button"
-                class="menu-toggle"
-                id="menuToggle"
-                aria-label="Mở menu"
-                aria-controls="sidebar"
-                aria-expanded="false"
-            >☰</button>
-
-            <div class="topbar-title">
-                <span class="topbar-label">MEMBER AREA</span>
-                <h1>Trang chủ</h1>
-            </div>
-
-            <div class="user-info">
-                <div class="user-avatar">HV</div>
-
-                <div class="user-text">
-                    <strong>Hội viên</strong>
-                    <span>Chào mừng bạn!</span>
-                </div>
-            </div>
-
-        </header>
+        <?php include __DIR__ . '/../../layouts/topbar.php'; ?>
 
         <main class="dashboard-content">
 
             <!-- BANNER CHÀO MỪNG -->
             <section class="welcome-banner">
-
                 <div>
                     <p class="banner-label">CHÀO MỪNG ĐẾN VỚI FITZONE</p>
-
                     <h2>Bắt đầu hành trình khỏe mạnh của bạn!</h2>
-
-                    <p>
-                        Quản lý gói tập, tìm huấn luyện viên
-                        và chủ động lịch tập.
-                    </p>
-
+                    <p>Quản lý gói tập, tìm huấn luyện viên và chủ động lịch tập.</p>
                     <a href="membership.php" class="primary-link">
                         Khám phá gói tập <span>→</span>
                     </a>
                 </div>
-
-                <div class="banner-decoration" aria-hidden="true">
-                    FIT
-                </div>
-
+                <div class="banner-decoration" aria-hidden="true">FIT</div>
             </section>
 
             <!-- TỔNG QUAN -->
             <section class="section-block">
-
                 <div class="section-heading">
                     <div>
                         <h2>Tổng quan</h2>
@@ -153,35 +78,33 @@ $csrfToken = getCsrfToken();
                 </div>
 
                 <div class="overview-grid">
-
                     <article class="overview-card">
-                        <div class="card-icon green">▣</div>
+                        <div class="card-icon green" aria-hidden="true">▣</div>
                         <p>Gói hội viên</p>
-                        <h3>Chưa đăng ký</h3>
-                        <span>Chọn gói tập phù hợp với bạn</span>
+                        <h3 id="membershipStatus">Chưa đăng ký</h3>
+                        <span id="membershipDetail">Chọn gói tập phù hợp với bạn</span>
                     </article>
 
                     <article class="overview-card">
-                        <div class="card-icon purple">♙</div>
+                        <div class="card-icon purple" aria-hidden="true">♙</div>
                         <p>Huấn luyện viên</p>
                         <h3>Khám phá PT</h3>
                         <span>Tìm người đồng hành cùng bạn</span>
                     </article>
 
                     <article class="overview-card">
-                        <div class="card-icon orange">◷</div>
+                        <div class="card-icon orange" aria-hidden="true">◷</div>
                         <p>Lịch tập sắp tới</p>
-                        <h3>Chưa có lịch</h3>
+                        <h3 id="upcomingCount">Chưa có lịch</h3>
                         <span>Chủ động lên kế hoạch tập luyện</span>
                     </article>
-
                 </div>
 
+                <p class="form-feedback" id="dashboardFeedback" role="status" aria-live="polite"></p>
             </section>
 
             <!-- TRUY CẬP NHANH -->
             <section class="section-block">
-
                 <div class="section-heading">
                     <div>
                         <h2>Truy cập nhanh</h2>
@@ -190,59 +113,47 @@ $csrfToken = getCsrfToken();
                 </div>
 
                 <div class="quick-grid">
-
                     <a href="membership.php" class="quick-card">
-                        <span class="quick-icon">▣</span>
-
+                        <span class="quick-icon" aria-hidden="true">▣</span>
                         <div>
                             <h3>Xem gói hội viên</h3>
-                            <p>Tìm hiểu các gói tập tại FitZone.</p>
+                            <p>Tìm hiểu và đăng ký các gói tập tại FitZone.</p>
                         </div>
-
-                        <span class="quick-arrow">→</span>
+                        <span class="quick-arrow" aria-hidden="true">→</span>
                     </a>
 
                     <a href="../trainer/trainer.php" class="quick-card">
-                        <span class="quick-icon">♙</span>
-
+                        <span class="quick-icon" aria-hidden="true">♙</span>
                         <div>
                             <h3>Tìm huấn luyện viên</h3>
                             <p>Xem thông tin và chuyên môn của PT.</p>
                         </div>
-
-                        <span class="quick-arrow">→</span>
+                        <span class="quick-arrow" aria-hidden="true">→</span>
                     </a>
 
                     <a href="../trainer/schedule.php" class="quick-card">
-                        <span class="quick-icon">◷</span>
-
+                        <span class="quick-icon" aria-hidden="true">◷</span>
                         <div>
                             <h3>Lịch rảnh PT</h3>
                             <p>Xem các khung giờ PT còn trống để đặt lịch.</p>
                         </div>
-
-                        <span class="quick-arrow">→</span>
+                        <span class="quick-arrow" aria-hidden="true">→</span>
                     </a>
 
-
                     <a href="../trainer/profile.php" class="quick-card">
-                        <span class="quick-icon">⚙</span>
-
+                        <span class="quick-icon" aria-hidden="true">⚙</span>
                         <div>
                             <h3>Thông tin cá nhân</h3>
                             <p>Xem và cập nhật thông tin hội viên.</p>
                         </div>
-
-                        <span class="quick-arrow">→</span>
+                        <span class="quick-arrow" aria-hidden="true">→</span>
                     </a>
-
                 </div>
-
             </section>
 
-            <!-- CHÂN TRANG -->
+            <!-- FOOTER -->
             <footer class="dashboard-footer">
-                © <?= date("Y") ?> FitZone. All rights reserved.
+                &copy; <?= date('Y') ?> FitZone. All rights reserved.
             </footer>
 
         </main>
@@ -251,10 +162,60 @@ $csrfToken = getCsrfToken();
 
 </div>
 
-<!-- LỚP PHỦ MENU TRÊN ĐIỆN THOẠI -->
 <div class="sidebar-overlay" id="sidebarOverlay"></div>
 
+<!-- CSRF token dùng cho AJAX -->
+<input type="hidden" id="pageCsrfToken" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
+<script src="../../assets/js/api-client.js"></script>
 <script src="../../assets/js/dashboard.js"></script>
+<script>
+/* Dashboard member: load tóm tắt membership + upcoming bookings */
+document.addEventListener("DOMContentLoaded", () => {
+    const csrfToken = document.getElementById("pageCsrfToken")?.value || "";
+    const api       = new FitzoneAPI("../../../backend/api/", csrfToken);
+
+    /* Membership status */
+    async function loadMembership() {
+        try {
+            const data = await api.get("membership/current.php");
+            const statusEl = document.getElementById("membershipStatus");
+            const detailEl = document.getElementById("membershipDetail");
+            if (data && data.plan_name) {
+                if (statusEl) statusEl.textContent = data.plan_name;
+                if (detailEl) detailEl.textContent = "Hết hạn: " + FitzoneUI.formatDate(data.end_date);
+            } else {
+                if (statusEl) statusEl.textContent = "Chưa đăng ký";
+                if (detailEl) detailEl.textContent  = "Chọn gói tập phù hợp với bạn";
+            }
+        } catch (_) {
+            /* Giữ placeholder mặc định */
+        }
+    }
+
+    /* Upcoming bookings count */
+    async function loadUpcoming() {
+        try {
+            const bookings = await api.get("booking/mine.php");
+            const upcoming = Array.isArray(bookings)
+                ? bookings.filter(b => b.status === "confirmed" || b.status === "pending")
+                : [];
+            const countEl  = document.getElementById("upcomingCount");
+            const detailEl = document.getElementById("upcomingDetail") ?? null;
+            if (countEl) {
+                countEl.textContent = upcoming.length > 0
+                    ? upcoming.length + " lịch tập"
+                    : "Chưa có lịch";
+            }
+        } catch (_) {
+            /* Giữ placeholder */
+        }
+    }
+
+    Promise.all([loadMembership(), loadUpcoming()]);
+});
+</script>
 
 </body>
 </html>

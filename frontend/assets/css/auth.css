@@ -1,22 +1,32 @@
 @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap');
 
 /* ==============================
-   FITZONE - LOGIN & REGISTER
+   FITZONE - AUTH CSS
+   Login · Register · Shared
    ============================== */
 
 :root {
-    --primary: #22c55e;
-    --primary-hover: #16a34a;
-    --text: #172033;
-    --muted: #6b7280;
-    --border: #e5e7eb;
-    --background: #f5f7fa;
-    --white: #ffffff;
+    --primary:        #22c55e;
+    --primary-hover:  #16a34a;
+    --primary-dark:   #14532d;
+    --text:           #172033;
+    --muted:          #6b7280;
+    --border:         #e5e7eb;
+    --background:     #f5f7fa;
+    --white:          #ffffff;
+    --danger:         #ef4444;
+    --success:        #22c55e;
+    --info:           #3b82f6;
+    --radius-card:    18px;
+    --radius-input:   9px;
+    --transition:     0.2s ease;
 }
 
-* {
-    box-sizing: border-box;
-}
+*, *::before, *::after { box-sizing: border-box; }
+
+/* ============================================================
+   PAGE LAYOUT (split: visual | form)
+   ============================================================ */
 
 body.auth-page {
     min-height: 100vh;
@@ -26,18 +36,105 @@ body.auth-page {
     font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
 }
 
-/* Khu vực chứa form */
+body.auth-page .container-fluid {
+    display: flex;
+    min-height: 100vh;
+    padding: 0;
+}
+
+/* ---- Panel hình ảnh bên trái ---- */
+
+.auth-visual {
+    display: none; /* ẩn trên mobile, hiện từ md+ */
+    position: relative;
+    flex: 0 0 420px;
+    overflow: hidden;
+    background: linear-gradient(145deg, #052e16, #14532d, #15803d);
+    color: var(--white);
+}
+
+.auth-visual-content {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    height: 100%;
+    padding: 60px 48px;
+    gap: 30px;
+}
+
+.auth-visual-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+.auth-visual-brand .brand-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.15);
+    font-size: 22px;
+    font-weight: 900;
+}
+
+.auth-visual blockquote {
+    border-left: 3px solid rgba(255,255,255,0.3);
+    padding-left: 18px;
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.7;
+    color: #bbf7d0;
+    font-style: italic;
+}
+
+.auth-visual-benefits {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.auth-visual-benefits li {
+    font-size: 14px;
+    color: #dcfce7;
+    display: flex;
+    gap: 10px;
+}
+
+.auth-visual-decoration {
+    position: absolute;
+    bottom: -40px;
+    right: -20px;
+    font-size: 150px;
+    font-weight: 900;
+    font-style: italic;
+    color: rgba(255,255,255,0.05);
+    pointer-events: none;
+    user-select: none;
+}
+
+/* ---- Panel form ---- */
 
 .auth-form-side {
-    width: 100%;
-    min-height: 100vh;
+    flex: 1;
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 40px 20px;
+    overflow-y: auto;
 }
 
-/* Khung đăng nhập và đăng ký */
+/* ============================================================
+   AUTH CARD
+   ============================================================ */
 
 .auth-card {
     width: 100%;
@@ -45,17 +142,43 @@ body.auth-page {
     padding: 36px;
     background: var(--white);
     border: 1px solid #edf0f3;
-    border-radius: 18px;
+    border-radius: var(--radius-card);
     box-shadow: 0 12px 35px rgba(15, 23, 42, 0.07);
 }
-
-/* Khung đăng ký rộng hơn một chút */
 
 .auth-card-register {
     max-width: 560px;
 }
 
-/* Tiêu đề */
+/* ---- Mobile brand (hiện khi panel visual ẩn) ---- */
+
+.mobile-brand {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 24px;
+    font-size: 17px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    color: var(--text);
+}
+
+.mobile-brand .brand-mark {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border-radius: 9px;
+    background: var(--primary);
+    color: #052e16;
+    font-size: 19px;
+    font-weight: 900;
+}
+
+/* ============================================================
+   AUTH HEADING
+   ============================================================ */
 
 .auth-heading {
     margin-bottom: 28px;
@@ -64,17 +187,17 @@ body.auth-page {
 .eyebrow {
     margin-bottom: 10px;
     color: var(--primary-hover);
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 700;
     letter-spacing: 2px;
     text-transform: uppercase;
 }
 
-.auth-heading h2 {
+.auth-heading h1 {
     margin-bottom: 10px;
     color: var(--text);
-    font-size: 28px;
-    font-weight: 700;
+    font-size: 26px;
+    font-weight: 800;
 }
 
 .auth-heading p:last-child {
@@ -84,27 +207,28 @@ body.auth-page {
     line-height: 1.6;
 }
 
-/* Nhãn của các trường nhập liệu */
+/* ============================================================
+   FORM ELEMENTS
+   ============================================================ */
 
 .form-label {
-    margin-bottom: 8px;
+    margin-bottom: 7px;
     color: var(--text);
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
 }
 
-/* Ô nhập liệu */
-
 .auth-card .form-control {
-    min-height: 48px;
+    min-height: 46px;
     padding: 11px 13px;
-    border: 1px solid var(--border);
-    border-radius: 9px;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-input);
     background: var(--white);
     color: var(--text);
     font-size: 14px;
     box-shadow: none;
-    transition: border-color 0.2s, box-shadow 0.2s;
+    transition: border-color var(--transition), box-shadow var(--transition);
+    font-family: inherit;
 }
 
 .auth-card .form-control::placeholder {
@@ -113,10 +237,77 @@ body.auth-page {
 
 .auth-card .form-control:focus {
     border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14);
+    outline: none;
 }
 
-/* Checkbox */
+.auth-card .form-control.is-invalid {
+    border-color: var(--danger);
+}
+
+.auth-card .form-control.is-valid {
+    border-color: var(--success);
+}
+
+/* ---- Toggle password ---- */
+
+.input-with-toggle {
+    position: relative;
+}
+
+.input-with-toggle .form-control {
+    padding-right: 60px;
+}
+
+.toggle-password {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    padding: 2px 8px;
+    border: none;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color var(--transition);
+}
+
+.toggle-password:hover {
+    color: var(--primary-dark);
+}
+
+/* ---- Password strength ---- */
+
+.password-strength {
+    height: 4px;
+    margin-top: 6px;
+    border-radius: 2px;
+    background: var(--border);
+    overflow: hidden;
+}
+
+.password-strength-bar {
+    height: 100%;
+    width: 0;
+    border-radius: 2px;
+    transition: width 0.3s, background 0.3s;
+}
+
+.password-strength-bar.strength-1 { width: 25%; background: #ef4444; }
+.password-strength-bar.strength-2 { width: 50%; background: #f97316; }
+.password-strength-bar.strength-3 { width: 75%; background: #eab308; }
+.password-strength-bar.strength-4 { width: 100%; background: var(--success); }
+
+.password-hint {
+    margin: 4px 0 0;
+    color: #9ca3af;
+    font-size: 11px;
+}
+
+/* ---- Checkbox ---- */
 
 .auth-card .form-check-input {
     border-color: #cbd5e1;
@@ -130,7 +321,7 @@ body.auth-page {
 
 .auth-card .form-check-input:focus {
     border-color: var(--primary);
-    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.12);
+    box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.14);
 }
 
 .auth-card .form-check-label {
@@ -139,23 +330,31 @@ body.auth-page {
     cursor: pointer;
 }
 
-/* Nút chính */
+/* ============================================================
+   BUTTONS
+   ============================================================ */
 
 .auth-card .btn-primary {
     min-height: 48px;
     border: none;
-    border-radius: 9px;
+    border-radius: var(--radius-input);
     background: var(--primary);
     color: #052e16;
     font-size: 15px;
     font-weight: 700;
-    transition: background 0.2s, transform 0.2s;
+    transition: background var(--transition), transform var(--transition);
 }
 
-.auth-card .btn-primary:hover {
+.auth-card .btn-primary:hover:not(:disabled) {
     background: var(--primary-hover);
     color: var(--white);
     transform: translateY(-1px);
+}
+
+.auth-card .btn-primary:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+    transform: none;
 }
 
 .auth-card .btn-primary:focus-visible {
@@ -163,21 +362,26 @@ body.auth-page {
     outline-offset: 3px;
 }
 
-/* Liên kết */
+/* ============================================================
+   LINKS
+   ============================================================ */
 
-.auth-card a {
+.auth-card a,
+.terms-link {
     color: var(--primary-hover);
     font-weight: 600;
     text-decoration: none;
 }
 
-.auth-card a:hover {
+.auth-card a:hover,
+.terms-link:hover {
     text-decoration: underline;
 }
 
 .small-link {
     margin-bottom: 8px;
     font-size: 12px;
+    white-space: nowrap;
 }
 
 .auth-switch {
@@ -188,43 +392,99 @@ body.auth-page {
 }
 
 .terms-note {
-    margin: 16px 0 0;
+    margin: 14px 0 0;
     color: var(--muted);
-    font-size: 12px;
+    font-size: 11px;
     line-height: 1.6;
     text-align: center;
 }
 
-/* Thông báo từ JavaScript */
+/* ============================================================
+   FEEDBACK MESSAGES
+   ============================================================ */
 
 .form-feedback {
+    min-height: 1.4em;
     margin: 12px 0 0;
     font-size: 13px;
     line-height: 1.5;
+    transition: color var(--transition);
 }
 
-/* Ẩn các thành phần giao diện cũ bên trái */
+.form-feedback.error   { color: var(--danger); }
+.form-feedback.success { color: #15803d; }
+.form-feedback.info    { color: var(--info); }
 
-.auth-visual,
-.mobile-brand {
-    display: none !important;
+/* ============================================================
+   DEMO ACCOUNTS (details/summary)
+   ============================================================ */
+
+.demo-accounts {
+    margin-top: 20px;
+    border: 1px dashed var(--border);
+    border-radius: 9px;
+    padding: 10px 14px;
+    font-size: 12px;
+    color: var(--muted);
 }
 
-/* Responsive cho điện thoại */
+.demo-accounts summary {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--text);
+    list-style: none;
+}
 
-@media (max-width: 576px) {
-    .auth-form-side {
-        padding: 20px 12px;
-    }
+.demo-accounts summary::-webkit-details-marker { display: none; }
+
+.demo-accounts ul {
+    margin: 10px 0 0;
+    padding-left: 16px;
+}
+
+.demo-accounts li {
+    margin-bottom: 4px;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+
+@media (min-width: 900px) {
+    .auth-visual    { display: flex; }
+    .mobile-brand   { display: none !important; }
+}
+
+@media (max-width: 899px) {
+    .mobile-brand   { display: flex; }
+    .auth-visual    { display: none !important; }
 
     .auth-card,
     .auth-card-register {
         max-width: 100%;
-        padding: 24px 20px;
+    }
+}
+
+@media (max-width: 576px) {
+    .auth-form-side {
+        padding: 20px 12px;
+        align-items: flex-start;
+    }
+
+    .auth-card,
+    .auth-card-register {
+        padding: 24px 18px;
         border-radius: 14px;
     }
 
-    .auth-heading h2 {
-        font-size: 24px;
+    .auth-heading h1 {
+        font-size: 22px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        transition: none !important;
+        animation: none !important;
     }
 }
