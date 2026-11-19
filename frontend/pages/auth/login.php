@@ -18,6 +18,10 @@ if (isLoggedIn()) {
 
 // Xử lý khi người dùng gửi form đăng nhập
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!verifyCsrfToken($_POST['csrf_token'] ?? null)) {
+        http_response_code(403);
+        $errorMessage = 'Phiên làm việc không hợp lệ. Vui lòng tải lại trang.';
+    } else {
     try {
         $controller = new AuthController();
         $result = $controller->login();
@@ -41,6 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         http_response_code(500);
 
         $errorMessage = 'Hệ thống đang gặp sự cố. Vui lòng thử lại sau.';
+    }
     }
 }
 ?>
@@ -70,6 +75,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
 
                 <form action="#" method="post" id="loginForm">
+                    <input type="hidden" name="csrf_token"
+                           value="<?= htmlspecialchars(getCsrfToken(), ENT_QUOTES, 'UTF-8') ?>">
                     <div class="mb-3">
                         <label for="email" class="form-label">Email</label>
                         <input

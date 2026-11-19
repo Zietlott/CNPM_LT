@@ -6,6 +6,15 @@ $pageTitle = "Đăng ký";
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Content-Type: application/json; charset=utf-8');
 
+    if (!verifyCsrfToken($_POST['csrf_token'] ?? null)) {
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Phiên làm việc không hợp lệ. Vui lòng tải lại trang.'
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     $password = $_POST['password'] ?? '';
     $confirmPassword = $_POST['confirm_password'] ?? '';
 
@@ -65,6 +74,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
 
                 <form action="#" method="post" id="registerForm">
+                    <input type="hidden" name="csrf_token"
+                           value="<?= htmlspecialchars(getCsrfToken(), ENT_QUOTES, 'UTF-8') ?>">
 
                     <div class="mb-3">
                         <label for="fullName" class="form-label">
