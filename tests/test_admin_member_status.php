@@ -19,7 +19,7 @@ try {
     $reflection->setAccessible(true);
     $reflection->setValue($controller, $service);
 
-    $memberId = 2;
+    $memberId = 7;
     $original = $service->getMemberById($memberId);
 
     if ($original === null) {

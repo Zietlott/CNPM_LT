@@ -8,6 +8,7 @@ $scheduleIds = [];
 $bookingIds = [];
 $accountIds = [];
 $trainerId = null;
+require_once __DIR__ . '/../backend/services/TrainerService.php';
 $results = [];
 $hasFailures = false;
 
@@ -31,24 +32,19 @@ try {
          ORDER BY m.member_id
          LIMIT 1"
     )->fetchColumn();
-    $trainerId = (int) $db->query(
-        "SELECT trainer_id
-         FROM personal_trainer
-         WHERE is_active = 1 AND member_id IS NULL
-         ORDER BY trainer_id
-         LIMIT 1"
-    )->fetchColumn();
     $adminId = (int) $db->query(
         "SELECT member_id FROM member WHERE role = 'admin' AND status = 'active'
          ORDER BY member_id LIMIT 1"
     )->fetchColumn();
 
-    if ($memberId <= 0 || $trainerId <= 0 || $adminId <= 0) {
+    if ($memberId <= 0 || $adminId <= 0) {
         throw new RuntimeException(
-            'Workflow tests require an active member, an unlinked active PT, and an admin.'
+            'Workflow tests require an active member and an admin.'
         );
     }
 
+    $trainerId = (new TrainerService())->createTrainer('Workflow PT', 'Test', 1);
+    $accountIds[] = $trainerId;
     $nonce = bin2hex(random_bytes(5));
     $phone = '9' . str_pad((string) random_int(0, 999999999), 9, '0', STR_PAD_LEFT);
     $trainerAccountId = $service->createTrainerAccount(
@@ -57,7 +53,6 @@ try {
         $phone,
         'WorkflowPT!123'
     );
-    $accountIds[] = $trainerAccountId;
     $staffPhone = '8' . str_pad((string) random_int(0, 999999999), 9, '0', STR_PAD_LEFT);
     $staffId = $service->createStaffAccount(
         'Booking Workflow Staff',
@@ -65,7 +60,8 @@ try {
         $staffPhone,
         'WorkflowStaff!123',
         false,
-        false
+        false,
+        $adminId
     );
     $accountIds[] = $staffId;
 
@@ -180,7 +176,7 @@ try {
         );
     }
 
-    $service->updateStaffPermissions($staffId, false, true);
+    $service->updateStaffPermissions($staffId, false, true, $adminId);
     $staffBookings = $service->getStaffBookings($staffId);
     $assert(
         'Staff booking list reflects granted cancellation permission',
@@ -199,11 +195,11 @@ try {
 
     $stmt = $db->prepare(
         "SELECT COUNT(*)
-         FROM booking_audit_log
-         WHERE booking_id = :booking_id
-           AND actor_member_id = :actor_id
+         FROM audit_logs
+         WHERE entity_type = 'Booking' AND entity_id = :booking_id
+           AND actor_id = :actor_id
            AND action = 'staff_cancelled'
-           AND reason = :reason"
+           AND JSON_UNQUOTE(JSON_EXTRACT(new_value, '$.reason')) = :reason"
     );
     $stmt->execute([
         'booking_id' => $bookingId,
@@ -226,9 +222,9 @@ try {
     );
     $stmt = $db->prepare(
         "SELECT COUNT(*)
-         FROM booking_audit_log
-         WHERE booking_id = :booking_id
-           AND actor_member_id = :actor_id
+         FROM audit_logs
+         WHERE entity_type = 'Booking' AND entity_id = :booking_id
+           AND actor_id = :actor_id
            AND action = 'admin_cancelled'"
     );
     $stmt->execute([
@@ -244,32 +240,33 @@ try {
     $hasFailures = in_array(false, array_column($results, 1), true);
 } finally {
     foreach ($bookingIds as $bookingId) {
-        foreach (['notification', 'booking_audit_log', 'booking_change_request'] as $table) {
-            $stmt = $db->prepare(
-                "DELETE FROM {$table} WHERE booking_id = :booking_id"
-            );
-            $stmt->execute(['booking_id' => $bookingId]);
+        foreach ([
+            "DELETE FROM notifications WHERE type = 'Booking' AND reference_id = :booking_id",
+            "DELETE FROM audit_logs WHERE entity_type = 'Booking' AND entity_id = :booking_id",
+            'DELETE FROM booking_change_requests WHERE booking_id = :booking_id'
+        ] as $sql) {
+            $db->prepare($sql)->execute(['booking_id' => $bookingId]);
         }
-        $stmt = $db->prepare('DELETE FROM booking WHERE booking_id = :booking_id');
+        $stmt = $db->prepare('DELETE FROM bookings WHERE id = :booking_id');
         $stmt->execute(['booking_id' => $bookingId]);
     }
 
     foreach ($scheduleIds as $scheduleId) {
         $stmt = $db->prepare(
-            'DELETE FROM trainer_schedule WHERE schedule_id = :schedule_id'
+            'DELETE FROM schedules WHERE id = :schedule_id'
         );
         $stmt->execute(['schedule_id' => $scheduleId]);
     }
 
     foreach ($accountIds as $accountId) {
-        $stmt = $db->prepare('DELETE FROM notification WHERE member_id = :member_id');
-        $stmt->execute(['member_id' => $accountId]);
-        $stmt = $db->prepare(
-            'UPDATE personal_trainer SET member_id = NULL WHERE member_id = :member_id'
-        );
-        $stmt->execute(['member_id' => $accountId]);
-        $stmt = $db->prepare('DELETE FROM member WHERE member_id = :member_id');
-        $stmt->execute(['member_id' => $accountId]);
+        foreach ([
+            'DELETE FROM notifications WHERE user_id = :id',
+            'DELETE FROM staff_permissions WHERE staff_id = :id',
+            'DELETE FROM pt_profiles WHERE user_id = :id',
+            'DELETE FROM users WHERE id = :id'
+        ] as $sql) {
+            $db->prepare($sql)->execute(['id' => $accountId]);
+        }
     }
 }
 

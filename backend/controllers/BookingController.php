@@ -202,7 +202,7 @@ class BookingController
         bool $canConfirm,
         bool $canCancel
     ): int {
-        $this->requireRole('admin');
+        $actorId = $this->requireRole('admin');
 
         return $this->service->createStaffAccount(
             $fullName,
@@ -210,7 +210,8 @@ class BookingController
             $phone,
             $password,
             $canConfirm,
-            $canCancel
+            $canCancel,
+            $actorId
         );
     }
 
@@ -219,8 +220,8 @@ class BookingController
         bool $canConfirm,
         bool $canCancel
     ): void {
-        $this->requireRole('admin');
-        $this->service->updateStaffPermissions($staffId, $canConfirm, $canCancel);
+        $actorId = $this->requireRole('admin');
+        $this->service->updateStaffPermissions($staffId, $canConfirm, $canCancel, $actorId);
     }
 
     private function requireMemberId(): int

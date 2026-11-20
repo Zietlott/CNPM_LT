@@ -5,8 +5,8 @@ require_once __DIR__ . '/../backend/services/AdminService.php';
 try {
     $adminService = new AdminService();
 
-    // Kiểm tra hội viên có ID = 2
-    $member = $adminService->getMemberById(2);
+    // Kiểm tra hội viên có ID = 7
+    $member = $adminService->getMemberById(7);
 
     if ($member !== null) {
         echo "TEST 1: PASS - Tim thay hoi vien\n";

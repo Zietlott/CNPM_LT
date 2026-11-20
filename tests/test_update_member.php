@@ -14,7 +14,7 @@ try {
     $db->beginTransaction();
 
     // Lấy thông tin hội viên ID = 2
-    $memberId = 2;
+    $memberId = 7;
     $original = $service->getMemberById($memberId);
 
     if ($original === null) {

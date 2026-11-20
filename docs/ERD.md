@@ -2,6 +2,12 @@
 
 Sơ đồ Mermaid (xem trực tiếp trên GitHub/GitLab hoặc dán vào https://mermaid.live để xuất PNG).
 
+## Khởi tạo database cho dự án
+
+Import [schema.sql](../database/schema.sql) vào MySQL/MariaDB để tạo database `fitness_center` trống, rồi import [seed.sql](../database/seed.sql) để thêm tài khoản và dữ liệu mẫu. PHP mặc định kết nối tới `127.0.0.1:3306`, user `root`, mật khẩu rỗng. Đặt `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` hoặc `DB_PASS` nếu môi trường của bạn dùng cấu hình khác.
+
+Các view trong `schema.sql` cung cấp tên trường mà giao diện PHP hiện dùng. Dữ liệu được lưu trong các bảng ở sơ đồ dưới đây.
+
 ```mermaid
 erDiagram
     users ||--o| member_profiles : "1-1 (Member)"
@@ -97,6 +103,7 @@ erDiagram
         bigint schedule_id FK
         bigint membership_id FK
         decimal fee_snapshot
+        varchar note
         enum status "AwaitingPayment|Pending|Confirmed|Completed|Expired|Cancelled|Rejected"
         datetime hold_expires_at
     }
@@ -119,6 +126,7 @@ erDiagram
         bigint id PK
         bigint booking_id FK
         bigint new_schedule_id FK
+        varchar reason
         enum status "Pending|Approved|Rejected|Withdrawn"
     }
     pt_earnings {

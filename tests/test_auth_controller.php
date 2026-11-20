@@ -6,8 +6,8 @@ require_once __DIR__ . '/../backend/controllers/AuthController.php';
 $_SERVER['REQUEST_METHOD'] = 'POST';
 
 $_POST = [
-    'email' => 'testfitzone@example.com',
-    'password' => 'Test@123456'
+    'email' => 'member1@fitness.local',
+    'password' => 'Fitness@123'
 ];
 
 // Gọi Controller xử lý đăng nhập

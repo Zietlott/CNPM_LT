@@ -8,7 +8,7 @@ try {
     // TEST 1: Chưa đăng nhập
     $_SESSION = [];
 
-    $result = $controller->getMemberDetail(2);
+    $result = $controller->getMemberDetail(7);
 
     echo "TEST 1: ";
     echo $result['success'] === false
@@ -16,10 +16,10 @@ try {
         : "FAIL - Chua dang nhap van truy cap duoc\n";
 
     // TEST 2: Tài khoản Member
-    $_SESSION['member_id'] = 2;
+    $_SESSION['member_id'] = 7;
     $_SESSION['role'] = 'member';
 
-    $result = $controller->getMemberDetail(2);
+    $result = $controller->getMemberDetail(7);
 
     echo "TEST 2: ";
     echo $result['success'] === false
@@ -30,12 +30,12 @@ try {
     $_SESSION['member_id'] = 1;
     $_SESSION['role'] = 'admin';
 
-    $result = $controller->getMemberDetail(2);
+    $result = $controller->getMemberDetail(7);
 
     echo "TEST 3: ";
     echo $result['success'] === true
         && isset($result['data'])
-        && $result['data']['member_id'] == 2
+        && $result['data']['member_id'] == 7
         ? "PASS - Admin xem duoc chi tiet\n"
         : "FAIL - Admin khong xem duoc chi tiet\n";
 

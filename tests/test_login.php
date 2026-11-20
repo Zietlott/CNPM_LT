@@ -7,8 +7,8 @@ $authService = new AuthService();
 
 // Kiểm thử đăng nhập
 $result = $authService->login(
-    'testfitzone@example.com',
-    'Test@123456'
+    'member1@fitness.local',
+    'Fitness@123'
 );
 
 // Hiển thị kết quả

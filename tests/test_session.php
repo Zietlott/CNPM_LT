@@ -1,5 +1,7 @@
 <?php
 
+ob_start();
+
 require_once __DIR__ . '/../backend/services/AuthService.php';
 require_once __DIR__ . '/../backend/helpers/auth.php';
 
@@ -7,8 +9,8 @@ $authService = new AuthService();
 
 // Bước 1: Đăng nhập
 $result = $authService->login(
-    'testfitzone@example.com',
-    'Test@123456'
+    'member1@fitness.local',
+    'Fitness@123'
 );
 
 if (!$result['success']) {

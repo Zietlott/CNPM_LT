@@ -39,7 +39,7 @@ class BookingService
                     ON s.trainer_id = t.trainer_id
                 WHERE t.is_active = 1
                   AND s.status = 'available'
-                  AND TIMESTAMP(s.work_date, s.start_time) > CURRENT_TIMESTAMP
+                  AND TIMESTAMP(s.work_date, s.start_time) > (UTC_TIMESTAMP() + INTERVAL 7 HOUR)
                   AND NOT EXISTS (
                       SELECT 1
                       FROM booking b
@@ -73,7 +73,7 @@ class BookingService
                 WHERE s.trainer_id = :trainer_id
                   AND s.work_date = :work_date
                   AND s.work_date >= CURRENT_DATE
-                  AND TIMESTAMP(s.work_date, s.start_time) > CURRENT_TIMESTAMP
+                  AND TIMESTAMP(s.work_date, s.start_time) > (UTC_TIMESTAMP() + INTERVAL 7 HOUR)
                   AND s.status = 'available'
                   AND t.is_active = 1
                   AND NOT EXISTS (
@@ -118,7 +118,7 @@ class BookingService
                         WHEN b.status IN ('pending', 'confirmed')
                          AND TIMESTAMPDIFF(
                              SECOND,
-                             CURRENT_TIMESTAMP,
+                             (UTC_TIMESTAMP() + INTERVAL 7 HOUR),
                              TIMESTAMP(s.work_date, s.start_time)
                          ) > 0
                         THEN 1
@@ -128,7 +128,7 @@ class BookingService
                         WHEN b.status IN ('pending', 'confirmed')
                          AND TIMESTAMPDIFF(
                              SECOND,
-                             CURRENT_TIMESTAMP,
+                             (UTC_TIMESTAMP() + INTERVAL 7 HOUR),
                              TIMESTAMP(s.work_date, s.start_time)
                          ) >= :cancellation_seconds
                         THEN 1
@@ -423,7 +423,7 @@ class BookingService
                  WHERE schedule_id = :schedule_id
                    AND trainer_id = :trainer_id
                    AND status = 'available'
-                   AND TIMESTAMP(work_date, start_time) > CURRENT_TIMESTAMP
+                   AND TIMESTAMP(work_date, start_time) > (UTC_TIMESTAMP() + INTERVAL 7 HOUR)
                  FOR UPDATE"
             );
             $scheduleStmt->execute([
@@ -514,10 +514,14 @@ class BookingService
             }
 
             $insertStmt = $this->db->prepare(
-                "INSERT INTO booking
-                    (member_id, schedule_id, membership_id, note, status)
-                 VALUES
-                    (:member_id, :schedule_id, :membership_id, :note, 'pending')"
+                "INSERT INTO bookings
+                    (member_id, schedule_id, membership_id, note, status, pt_id,
+                     start_at, end_at, duration_minutes, fee_snapshot)
+                 SELECT :member_id, s.id, :membership_id, :note, 'Pending', s.pt_id,
+                        s.start_at, s.end_at, TIMESTAMPDIFF(MINUTE, s.start_at, s.end_at),
+                        ROUND(COALESCE(p.hourly_rate, 0) * TIMESTAMPDIFF(MINUTE, s.start_at, s.end_at) / 60, 2)
+                 FROM schedules s JOIN pt_profiles p ON p.user_id = s.pt_id
+                 WHERE s.id = :schedule_id"
             );
             $insertStmt->execute([
                 'member_id' => $memberId,
@@ -564,7 +568,6 @@ class BookingService
         $this->createNotification(
             $memberId,
             $bookingId,
-            'booking_created',
             'Đã gửi yêu cầu đặt lịch',
             sprintf(
                 'Yêu cầu tập với huấn luyện viên %s lúc %s ngày %s đang chờ xác nhận.',
@@ -579,7 +582,6 @@ class BookingService
             $this->createNotification(
                 $trainerAccountId,
                 $bookingId,
-                'booking_created',
                 'Booking mới cần xác nhận',
                 sprintf(
                     'Hội viên gửi yêu cầu tập lúc %s ngày %s.',
@@ -605,10 +607,10 @@ class BookingService
             $trainerId = $this->lockTrainerForAccount($memberId);
             $this->assertNoScheduleOverlap($trainerId, $workDate, $startTime, $endTime);
             $stmt = $this->db->prepare(
-                "INSERT INTO trainer_schedule
-                    (trainer_id, work_date, start_time, end_time, status)
-                 VALUES
-                    (:trainer_id, :work_date, :start_time, :end_time, 'available')"
+                "INSERT INTO schedules (pt_id, start_at, end_at)
+                 SELECT :trainer_id, TIMESTAMP(d.work_date, :start_time) - INTERVAL 7 HOUR,
+                        TIMESTAMP(d.work_date, :end_time) - INTERVAL 7 HOUR
+                 FROM (SELECT :work_date AS work_date) d"
             );
             $stmt->execute([
                 'trainer_id' => $trainerId,
@@ -679,11 +681,10 @@ class BookingService
                 $scheduleId
             );
             $stmt = $this->db->prepare(
-                'UPDATE trainer_schedule
-                 SET work_date = :work_date,
-                     start_time = :start_time,
-                     end_time = :end_time
-                 WHERE schedule_id = :schedule_id'
+                'UPDATE schedules s CROSS JOIN (SELECT :work_date AS work_date) d
+                 SET s.start_at = TIMESTAMP(d.work_date, :start_time) - INTERVAL 7 HOUR,
+                     s.end_at = TIMESTAMP(d.work_date, :end_time) - INTERVAL 7 HOUR
+                 WHERE s.id = :schedule_id'
             );
             $stmt->execute([
                 'work_date' => $workDate,
@@ -739,9 +740,7 @@ class BookingService
 
             if ($schedule['status'] === 'available') {
                 $stmt = $this->db->prepare(
-                    "UPDATE trainer_schedule
-                     SET status = 'unavailable'
-                     WHERE schedule_id = :schedule_id"
+                    "UPDATE schedules SET status = 'Closed' WHERE id = :schedule_id"
                 );
                 $stmt->execute(['schedule_id' => $scheduleId]);
             }
@@ -877,10 +876,11 @@ class BookingService
             );
 
             $stmt = $this->db->prepare(
-                "INSERT INTO booking_change_request
-                    (booking_id, requested_by_member_id, requested_schedule_id, reason)
-                 VALUES
-                    (:booking_id, :member_id, :schedule_id, :reason)"
+                "INSERT INTO booking_change_requests
+                    (booking_id, requested_by, old_schedule_id, new_schedule_id, new_start_at, new_end_at, reason)
+                 SELECT b.id, :member_id, b.schedule_id, s.id, s.start_at, s.end_at, :reason
+                 FROM bookings b CROSS JOIN schedules s
+                 WHERE b.id = :booking_id AND s.id = :schedule_id"
             );
             $stmt->execute([
                 'booking_id' => $bookingId,
@@ -912,7 +912,6 @@ class BookingService
             $this->createNotification(
                 $trainerAccountId,
                 $bookingId,
-                'booking_change_requested',
                 'Yêu cầu đổi lịch mới',
                 'Hội viên gửi yêu cầu đổi lịch. Vui lòng kiểm tra và xử lý.'
             );
@@ -941,11 +940,11 @@ class BookingService
             }
 
             $stmt = $this->db->prepare(
-                "UPDATE booking_change_request
-                 SET status = 'cancelled'
-                 WHERE request_id = :request_id
+                "UPDATE booking_change_requests
+                 SET status = 'Withdrawn'
+                 WHERE id = :request_id
                    AND booking_id = :booking_id
-                   AND requested_by_member_id = :member_id
+                   AND requested_by = :member_id
                    AND status = 'pending'"
             );
             $stmt->execute([
@@ -1074,11 +1073,11 @@ class BookingService
 
                 $before = $this->bookingSnapshot($booking);
                 $stmt = $this->db->prepare(
-                    "UPDATE booking
-                     SET schedule_id = :schedule_id,
-                         status = 'pending',
-                         cancel_reason = NULL
-                     WHERE booking_id = :booking_id"
+                    "UPDATE bookings b JOIN schedules s ON s.id = :schedule_id
+                     SET b.schedule_id = s.id, b.start_at = s.start_at, b.end_at = s.end_at,
+                         b.duration_minutes = TIMESTAMPDIFF(MINUTE, s.start_at, s.end_at),
+                         b.status = 'Pending', b.cancel_reason = NULL
+                     WHERE b.id = :booking_id"
                 );
                 $stmt->execute([
                     'schedule_id' => $requestedSchedule['schedule_id'],
@@ -1107,12 +1106,12 @@ class BookingService
             }
 
             $stmt = $this->db->prepare(
-                "UPDATE booking_change_request
+                "UPDATE booking_change_requests
                  SET status = :status,
-                     reviewed_by_member_id = :reviewer_id,
-                     reviewed_at = CURRENT_TIMESTAMP,
-                     decision_reason = :decision_reason
-                 WHERE request_id = :request_id"
+                     reviewed_by = :reviewer_id,
+                     reviewed_at = UTC_TIMESTAMP(),
+                     reject_reason = :decision_reason
+                 WHERE id = :request_id"
             );
             $stmt->execute([
                 'status' => $approve ? 'approved' : 'rejected',
@@ -1132,7 +1131,6 @@ class BookingService
             $this->createNotification(
                 (int) $booking['member_id'],
                 $bookingId,
-                'booking_change_approved',
                 'Yêu cầu đổi lịch được duyệt',
                 'Lịch tập mới đã được cập nhật và đang chờ PT xác nhận lại.'
             );
@@ -1140,7 +1138,6 @@ class BookingService
             $this->createNotification(
                 (int) $booking['member_id'],
                 $bookingId,
-                'booking_change_rejected',
                 'Yêu cầu đổi lịch bị từ chối',
                 'PT đã từ chối yêu cầu đổi lịch. Booking ban đầu vẫn được giữ nguyên.'
             );
@@ -1227,10 +1224,10 @@ class BookingService
                 }
 
                 $stmt = $this->db->prepare(
-                    "UPDATE booking
+                    "UPDATE bookings
                      SET status = 'cancelled',
                          cancel_reason = :reason
-                     WHERE booking_id = :booking_id"
+                     WHERE id = :booking_id"
                 );
                 $stmt->execute([
                     'reason' => trim($reason),
@@ -1325,25 +1322,22 @@ class BookingService
                 );
             }
 
-            $memberId = $this->insertAccount(
-                $trainer['full_name'],
-                strtolower(trim($email)),
-                trim($phone),
-                $password,
-                'trainer'
-            );
             $stmt = $this->db->prepare(
-                'UPDATE personal_trainer
-                 SET member_id = :member_id
-                 WHERE trainer_id = :trainer_id'
+                'UPDATE users SET email = :email, phone = :phone, password_hash = :password_hash
+                 WHERE id = :id AND email IS NULL'
             );
             $stmt->execute([
-                'member_id' => $memberId,
-                'trainer_id' => $trainerId
+                'email' => strtolower(trim($email)),
+                'phone' => trim($phone),
+                'password_hash' => password_hash($password, PASSWORD_DEFAULT),
+                'id' => $trainerId
             ]);
+            if ($stmt->rowCount() !== 1) {
+                throw new BookingException('Huấn luyện viên đã có tài khoản.', 'TRAINER_ACCOUNT_EXISTS', 409);
+            }
             $this->db->commit();
 
-            return $memberId;
+            return $trainerId;
         } catch (PDOException $e) {
             $this->rollBackIfActive();
             if (($e->errorInfo[1] ?? null) === 1062) {
@@ -1366,7 +1360,8 @@ class BookingService
         string $phone,
         string $password,
         bool $canConfirm,
-        bool $canCancel
+        bool $canCancel,
+        int $actorId
     ): int {
         if (
             trim($fullName) === ''
@@ -1388,9 +1383,9 @@ class BookingService
                 strtolower(trim($email)),
                 trim($phone),
                 $password,
-                'staff'
+                'Staff'
             );
-            $this->saveStaffPermissions($memberId, $canConfirm, $canCancel);
+            $this->saveStaffPermissions($memberId, $canConfirm, $canCancel, $actorId);
             $this->db->commit();
 
             return $memberId;
@@ -1413,7 +1408,8 @@ class BookingService
     public function updateStaffPermissions(
         int $staffId,
         bool $canConfirm,
-        bool $canCancel
+        bool $canCancel,
+        int $actorId
     ): void {
         if ($staffId <= 0) {
             throw $this->invalidBookingData('Tài khoản Staff không hợp lệ.');
@@ -1431,7 +1427,7 @@ class BookingService
             );
         }
 
-        $this->saveStaffPermissions($staffId, $canConfirm, $canCancel);
+        $this->saveStaffPermissions($staffId, $canConfirm, $canCancel, $actorId);
     }
 
     private function applyBookingTransition(
@@ -1455,10 +1451,10 @@ class BookingService
 
             $this->validateBookingForConfirmation($booking);
             $stmt = $this->db->prepare(
-                "UPDATE booking
+                "UPDATE bookings
                  SET status = 'confirmed',
                      cancel_reason = NULL
-                 WHERE booking_id = :booking_id"
+                 WHERE id = :booking_id"
             );
             $stmt->execute(['booking_id' => $bookingId]);
 
@@ -1484,10 +1480,10 @@ class BookingService
             }
 
             $stmt = $this->db->prepare(
-                "UPDATE booking
+                "UPDATE bookings
                  SET status = 'rejected',
                      cancel_reason = :reason
-                 WHERE booking_id = :booking_id"
+                 WHERE id = :booking_id"
             );
             $stmt->execute([
                 'reason' => trim($reason),
@@ -1518,9 +1514,9 @@ class BookingService
             }
 
             $stmt = $this->db->prepare(
-                "UPDATE booking
+                "UPDATE bookings
                  SET status = 'completed'
-                 WHERE booking_id = :booking_id"
+                 WHERE id = :booking_id"
             );
             $stmt->execute(['booking_id' => $bookingId]);
             $this->recordBookingAudit(
@@ -1587,7 +1583,7 @@ class BookingService
         $stmt = $this->db->prepare(
             'SELECT TIMESTAMPDIFF(
                 SECOND,
-                CURRENT_TIMESTAMP,
+                (UTC_TIMESTAMP() + INTERVAL 7 HOUR),
                 TIMESTAMP(:work_date, :start_time)
              )'
         );
@@ -1748,7 +1744,7 @@ class BookingService
              WHERE s.schedule_id = :schedule_id
                AND s.status = 'available'
                AND t.is_active = 1
-               AND TIMESTAMP(s.work_date, s.start_time) > CURRENT_TIMESTAMP
+               AND TIMESTAMP(s.work_date, s.start_time) > (UTC_TIMESTAMP() + INTERVAL 7 HOUR)
              FOR UPDATE"
         );
         $stmt->execute(['schedule_id' => $scheduleId]);
@@ -1787,12 +1783,12 @@ class BookingService
                 s.status AS schedule_status,
                 TIMESTAMPDIFF(
                     SECOND,
-                    CURRENT_TIMESTAMP,
+                    (UTC_TIMESTAMP() + INTERVAL 7 HOUR),
                     TIMESTAMP(s.work_date, s.start_time)
                 ) AS seconds_until_start,
                 TIMESTAMPDIFF(
                     SECOND,
-                    CURRENT_TIMESTAMP,
+                    (UTC_TIMESTAMP() + INTERVAL 7 HOUR),
                     TIMESTAMP(s.work_date, s.end_time)
                 ) AS seconds_until_end
              FROM booking b
@@ -1958,8 +1954,8 @@ class BookingService
     private function cancelPendingChangeRequests(int $bookingId): void
     {
         $stmt = $this->db->prepare(
-            "UPDATE booking_change_request
-             SET status = 'cancelled'
+            "UPDATE booking_change_requests
+             SET status = 'Withdrawn'
              WHERE booking_id = :booking_id
                AND status = 'pending'"
         );
@@ -1988,10 +1984,10 @@ class BookingService
         ?array $after
     ): void {
         $stmt = $this->db->prepare(
-            'INSERT INTO booking_audit_log
-                (booking_id, actor_member_id, action, reason, before_data, after_data)
+            'INSERT INTO audit_logs
+                (entity_id, actor_id, action, entity_type, old_value, new_value)
              VALUES
-                (:booking_id, :actor_member_id, :action, :reason, :before_data, :after_data)'
+                (:booking_id, :actor_member_id, :action, \'Booking\', :before_data, JSON_OBJECT(\'reason\', :reason, \'booking\', JSON_EXTRACT(:after_data, \'$\')))'
         );
         $stmt->execute([
             'booking_id' => $bookingId,
@@ -2016,22 +2012,18 @@ class BookingService
         $bookingId = (int) $booking['booking_id'];
         $details = match ($action) {
             'confirm' => [
-                'booking_confirmed',
                 'Lịch tập được xác nhận',
                 'Booking của bạn đã được xác nhận.'
             ],
             'reject' => [
-                'booking_rejected',
                 'Yêu cầu đặt lịch bị từ chối',
                 'Yêu cầu đặt lịch của bạn bị từ chối: ' . trim($reason)
             ],
             'complete' => [
-                'booking_completed',
                 'Buổi tập đã hoàn thành',
                 'Buổi tập với PT đã được đánh dấu hoàn thành.'
             ],
             'cancel' => [
-                'booking_cancelled',
                 'Lịch tập đã bị hủy',
                 'Booking của bạn đã bị Admin/Staff hủy: ' . trim($reason)
             ],
@@ -2046,8 +2038,7 @@ class BookingService
             $memberId,
             $bookingId,
             $details[0],
-            $details[1],
-            $details[2]
+            $details[1]
         );
 
         if (isset($booking['trainer_id'])) {
@@ -2057,8 +2048,7 @@ class BookingService
                     $trainerAccountId,
                     $bookingId,
                     $details[0],
-                    $details[1],
-                    $details[2]
+                    $details[1]
                 );
             }
         }
@@ -2072,7 +2062,7 @@ class BookingService
         string $role
     ): int {
         $stmt = $this->db->prepare(
-            'INSERT INTO member
+            'INSERT INTO users
                 (full_name, email, phone, password_hash, role)
              VALUES
                 (:full_name, :email, :phone, :password_hash, :role)'
@@ -2088,25 +2078,38 @@ class BookingService
         return (int) $this->db->lastInsertId();
     }
 
-    private function saveStaffPermissions(
-        int $staffId,
-        bool $canConfirm,
-        bool $canCancel
-    ): void {
-        $stmt = $this->db->prepare(
-            'INSERT INTO booking_staff_permission
-                (member_id, can_confirm, can_cancel)
-             VALUES
-                (:member_id, :can_confirm, :can_cancel)
-             ON DUPLICATE KEY UPDATE
-                can_confirm = VALUES(can_confirm),
-                can_cancel = VALUES(can_cancel)'
-        );
-        $stmt->execute([
-            'member_id' => $staffId,
-            'can_confirm' => $canConfirm ? 1 : 0,
-            'can_cancel' => $canCancel ? 1 : 0
-        ]);
+    private function saveStaffPermissions(int $staffId, bool $canConfirm, bool $canCancel, int $actorId): void
+    {
+        $ownsTransaction = !$this->db->inTransaction();
+        if ($ownsTransaction) {
+            $this->db->beginTransaction();
+        }
+        try {
+            $lock = $this->db->prepare('SELECT id FROM users WHERE id = ? FOR UPDATE');
+            $lock->execute([$staffId]);
+            $lock->fetchColumn();
+            $remove = $this->db->prepare(
+                "DELETE FROM staff_permissions WHERE staff_id = ?
+                 AND permission IN ('BOOKING_MANAGE', 'BOOKING_CONFIRM', 'BOOKING_CANCEL')"
+            );
+            $remove->execute([$staffId]);
+            $grant = $this->db->prepare(
+                'INSERT INTO staff_permissions (staff_id, permission, granted_by) VALUES (?, ?, ?)'
+            );
+            foreach (['BOOKING_CONFIRM' => $canConfirm, 'BOOKING_CANCEL' => $canCancel] as $permission => $enabled) {
+                if ($enabled) {
+                    $grant->execute([$staffId, $permission, $actorId]);
+                }
+            }
+            if ($ownsTransaction) {
+                $this->db->commit();
+            }
+        } catch (Throwable $e) {
+            if ($ownsTransaction) {
+                $this->rollBackIfActive();
+            }
+            throw $e;
+        }
     }
 
     private function rollBackIfActive(): void
@@ -2155,7 +2158,7 @@ class BookingService
                     t.full_name AS trainer_name,
                     TIMESTAMPDIFF(
                         SECOND,
-                        CURRENT_TIMESTAMP,
+                        (UTC_TIMESTAMP() + INTERVAL 7 HOUR),
                         TIMESTAMP(s.work_date, s.start_time)
                     ) AS seconds_until_start
                  FROM booking b
@@ -2201,10 +2204,10 @@ class BookingService
 
             $cancelReason = $reason !== '' ? $reason : 'Hội viên hủy lịch.';
             $updateStmt = $this->db->prepare(
-                "UPDATE booking
+                "UPDATE bookings
                  SET status = 'cancelled',
                      cancel_reason = :cancel_reason
-                 WHERE booking_id = :booking_id"
+                 WHERE id = :booking_id"
             );
             $updateStmt->execute([
                 'cancel_reason' => $cancelReason,
@@ -2232,7 +2235,6 @@ class BookingService
         $this->createNotification(
             $memberId,
             $bookingId,
-            'booking_cancelled',
             'Bạn đã hủy lịch tập',
             sprintf(
                 'Lịch tập với huấn luyện viên %s lúc %s ngày %s đã được hủy.',
@@ -2247,7 +2249,6 @@ class BookingService
             $this->createNotification(
                 $trainerAccountId,
                 $bookingId,
-                'booking_cancelled',
                 'Booking đã bị hội viên hủy',
                 'Hội viên đã hủy booking này.'
             );
@@ -2289,21 +2290,19 @@ class BookingService
     private function createNotification(
         int $memberId,
         int $bookingId,
-        string $type,
         string $title,
         string $message
     ): void {
         try {
             $stmt = $this->db->prepare(
-                'INSERT INTO notification
-                    (member_id, booking_id, type, title, message)
+                'INSERT INTO notifications
+                    (user_id, reference_id, type, title, content)
                  VALUES
-                    (:member_id, :booking_id, :type, :title, :message)'
+                    (:member_id, :booking_id, \'Booking\', :title, :message)'
             );
             $stmt->execute([
                 'member_id' => $memberId,
                 'booking_id' => $bookingId,
-                'type' => $type,
                 'title' => $title,
                 'message' => $message
             ]);

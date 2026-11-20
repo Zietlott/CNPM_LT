@@ -66,9 +66,9 @@ try {
     $pdo = getDBConnection();
 
     $stmt = $pdo->prepare(
-        'UPDATE member
+        'UPDATE users
          SET full_name = ?, phone = ?
-         WHERE member_id = ? AND status = ?'
+         WHERE id = ? AND status = ?'
     );
 
     $stmt->execute([

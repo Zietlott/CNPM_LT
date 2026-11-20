@@ -13,7 +13,7 @@ try {
     $db->beginTransaction();
 
     // Hội viên ID = 2 (Nguyễn Văn An)
-    $memberId = 2;
+    $memberId = 7;
     $original = $service->getMemberById($memberId);
 
     if ($original === null) {

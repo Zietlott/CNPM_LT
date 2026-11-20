@@ -91,10 +91,10 @@ class AdminService
         }
 
         // Cập nhật thông tin
-        $sql = "UPDATE member
+        $sql = "UPDATE users
                 SET full_name = :full_name,
                     phone = :phone
-                WHERE member_id = :member_id
+                WHERE id = :member_id
                   AND role = 'member'";
 
         $stmt = $this->db->prepare($sql);
@@ -126,9 +126,9 @@ class AdminService
             );
         }
 
-        $sql = "UPDATE member
+        $sql = "UPDATE users
                 SET status = :status
-                WHERE member_id = :member_id
+                WHERE id = :member_id
                   AND role = 'member'";
 
         $stmt = $this->db->prepare($sql);

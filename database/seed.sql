@@ -32,7 +32,7 @@ INSERT INTO pt_profiles (user_id, specialty, bio, experience_years, hourly_rate,
  (5, 'Giảm cân, Yoga, Cardio',     'Chuyên giảm mỡ an toàn và cải thiện thể lực tổng quát.', 4, 250000.00, 'Approved', 1),
  (6, 'Phục hồi chấn thương',       'Cựu vận động viên, chuyên phục hồi chức năng.',      8, 350000.00, 'Approved', 1);
 
--- Staff 2 có quyền xem báo cáo (REPORT_VIEW); Staff 3 chỉ quản lý Membership/PT
+-- Staff 2 có quyền xem báo cáo, quản lý Booking và xem Payment; Staff 3 quản lý Membership/PT
 INSERT INTO staff_permissions (staff_id, permission, granted_by) VALUES
  (2, 'REPORT_VIEW',        1),
  (2, 'BOOKING_MANAGE',     1),
@@ -61,7 +61,7 @@ INSERT INTO payments (id, member_id, booking_id, membership_id, amount, status, 
 INSERT INTO membership_status_history (membership_id, old_status, new_status, reason, changed_by) VALUES
  (1, 'PendingPayment', 'Active', 'Thanh toán thành công', NULL);
 
--- ---------- Schedules: mỗi PT có các khung giờ 1 tiếng, từ ngày mai +2 đến +8 ----------
+-- ---------- Schedules: mỗi PT có các khung giờ 1 tiếng, từ ngày +2 đến +8 ----------
 -- Khung giờ VN: 07:00, 08:00, 17:00, 18:00 = UTC 00:00, 01:00, 10:00, 11:00 (DB lưu UTC)
 -- Bắt đầu từ +2 ngày để thỏa quy tắc "đặt trước tối thiểu 24 giờ".
 INSERT INTO schedules (pt_id, start_at, end_at, status)

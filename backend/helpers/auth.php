@@ -2,6 +2,7 @@
 
 // Khởi tạo session nếu chưa có
 if (session_status() === PHP_SESSION_NONE) {
+    session_name('fitzone_fitness_center');
     session_start();
 }
 
@@ -40,19 +41,19 @@ function isLoggedIn(): bool
         $pdo = getDBConnection();
 
         $stmt = $pdo->prepare(
-            "SELECT role, status FROM member WHERE member_id = ? LIMIT 1"
+            'SELECT role, status FROM users WHERE id = ? LIMIT 1'
         );
 
         $stmt->execute([$memberId]);
         $member = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if (!$member || $member['status'] !== 'active') {
+        if (!$member || $member['status'] !== 'Active') {
             $_SESSION = [];
             return false;
         }
 
         // Đồng bộ quyền mới nhất từ database
-        $_SESSION['role'] = $member['role'];
+        $_SESSION['role'] = $member['role'] === 'PT' ? 'trainer' : strtolower($member['role']);
 
         return true;
 

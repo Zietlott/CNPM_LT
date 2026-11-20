@@ -1,12 +1,12 @@
 -- =====================================================================
 -- Fitness Center Membership & PT Booking App - schema.sql
--- Engine: MySQL 8.0+ / MariaDB 10.5+ (InnoDB, utf8mb4)
+-- Engine: MySQL 8.0+ / MariaDB 10.4+ (InnoDB, utf8mb4)
 -- Quy ước: bảng snake_case số nhiều; tiền dùng DECIMAL(12,2);
 --          MỌI cột thời gian lưu theo UTC (backend chuyển đổi khi hiển thị).
 -- =====================================================================
 
-DROP DATABASE IF EXISTS fitness_center;
-CREATE DATABASE fitness_center CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+-- Cài vào database trống. Script không xóa database hoặc dữ liệu hiện có.
+CREATE DATABASE IF NOT EXISTS fitness_center CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE fitness_center;
 SET time_zone = '+00:00';
 
@@ -15,7 +15,7 @@ SET time_zone = '+00:00';
 -- ---------------------------------------------------------------------
 CREATE TABLE users (
   id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  email         VARCHAR(255) NOT NULL,
+  email         VARCHAR(255) NULL,                    -- NULL khi hồ sơ PT chưa được cấp tài khoản
   username      VARCHAR(50)  NULL,
   password_hash VARCHAR(255) NOT NULL,                -- bcrypt / argon2id
   full_name     VARCHAR(150) NOT NULL,
@@ -26,8 +26,10 @@ CREATE TABLE users (
   updated_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_users_email (email),
+  UNIQUE KEY uq_users_phone (phone),
   UNIQUE KEY uq_users_username (username),
-  KEY idx_users_role_status (role, status)
+  KEY idx_users_role_status (role, status),
+  CONSTRAINT ck_users_email CHECK (email IS NOT NULL OR role = 'PT')
 ) ENGINE=InnoDB;
 
 CREATE TABLE member_profiles (
@@ -46,7 +48,7 @@ CREATE TABLE pt_profiles (
   specialty          VARCHAR(255) NOT NULL,
   bio                TEXT NULL,
   experience_years   TINYINT UNSIGNED NOT NULL DEFAULT 0,
-  hourly_rate        DECIMAL(12,2) NOT NULL,
+  hourly_rate        DECIMAL(12,2) NULL,             -- NULL khi hồ sơ PT chưa có đơn giá
   approval_status    ENUM('Pending','Approved','Rejected') NOT NULL DEFAULT 'Pending', -- chỉ Admin sửa
   accepting_bookings TINYINT(1) NOT NULL DEFAULT 1,                                     -- chỉ Admin/Staff sửa
   PRIMARY KEY (user_id),
@@ -184,6 +186,7 @@ CREATE TABLE bookings (
   end_at           DATETIME NOT NULL,
   duration_minutes INT UNSIGNED NOT NULL,
   fee_snapshot     DECIMAL(12,2) NOT NULL,          -- backend tự tính, không nhận từ frontend
+  note             VARCHAR(500) NULL,
   status           ENUM('AwaitingPayment','Pending','Confirmed','Completed',
                         'Expired','Cancelled','Rejected') NOT NULL DEFAULT 'AwaitingPayment',
   hold_expires_at  DATETIME NULL,                   -- now + 15 phút (so với giờ DB)
@@ -277,6 +280,7 @@ CREATE TABLE booking_change_requests (
   new_end_at      DATETIME NOT NULL,
   status          ENUM('Pending','Approved','Rejected','Withdrawn') NOT NULL DEFAULT 'Pending',
   reject_reason   VARCHAR(255) NULL,
+  reason          VARCHAR(500) NULL,
   reviewed_by     BIGINT UNSIGNED NULL,
   reviewed_at     DATETIME NULL,
   created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -343,3 +347,58 @@ CREATE TABLE audit_logs (
   KEY idx_audit_entity (entity_type, entity_id),
   CONSTRAINT fk_audit_actor FOREIGN KEY (actor_id) REFERENCES users(id)
 ) ENGINE=InnoDB;
+
+-- Read projections for the current PHP API response fields.
+CREATE VIEW member AS
+SELECT id AS member_id, full_name, email, phone, password_hash,
+       CASE role WHEN 'PT' THEN 'trainer' ELSE LOWER(role) END AS role,
+       LOWER(status) AS status, created_at, updated_at
+FROM users;
+
+CREATE VIEW membership_plan AS
+SELECT id AS plan_id, name, price, description,
+       GREATEST(1, ROUND(duration_days / 30)) AS duration_months,
+       status = 'Active' AS is_active
+FROM membership_plans;
+
+CREATE VIEW membership AS
+SELECT id AS membership_id, member_id, plan_id, start_date, end_date,
+       CASE status WHEN 'PendingPayment' THEN 'pending' ELSE LOWER(status) END AS status,
+       created_at, updated_at
+FROM memberships;
+
+CREATE VIEW personal_trainer AS
+SELECT p.user_id AS trainer_id, IF(u.email IS NULL, NULL, u.id) AS member_id,
+       u.full_name, p.specialty, p.experience_years, p.bio AS description,
+       UPPER(CONCAT(LEFT(u.full_name, 1), LEFT(SUBSTRING_INDEX(u.full_name, ' ', -1), 1))) AS initials,
+       'trainer-green' AS color_class,
+       (p.approval_status = 'Approved' AND p.accepting_bookings = 1 AND u.status = 'Active') AS is_active
+FROM pt_profiles p JOIN users u ON u.id = p.user_id;
+
+CREATE VIEW trainer_schedule AS
+SELECT id AS schedule_id, pt_id AS trainer_id,
+       DATE(start_at + INTERVAL 7 HOUR) AS work_date,
+       TIME(start_at + INTERVAL 7 HOUR) AS start_time,
+       TIME(end_at + INTERVAL 7 HOUR) AS end_time,
+       IF(status = 'Open', 'available', 'unavailable') AS status, created_at, updated_at
+FROM schedules;
+
+CREATE VIEW booking AS
+SELECT id AS booking_id, member_id, schedule_id, membership_id, note, cancel_reason,
+       LOWER(status) AS status, created_at, updated_at
+FROM bookings;
+
+CREATE VIEW booking_change_request AS
+SELECT id AS request_id, booking_id, requested_by AS requested_by_member_id,
+       new_schedule_id AS requested_schedule_id, reason, reject_reason AS decision_reason,
+       reviewed_by AS reviewed_by_member_id, reviewed_at,
+       IF(status = 'Withdrawn', 'cancelled', LOWER(status)) AS status, created_at, updated_at
+FROM booking_change_requests;
+
+CREATE VIEW booking_staff_permission AS
+SELECT staff_id AS member_id,
+       MAX(permission IN ('BOOKING_MANAGE', 'BOOKING_CONFIRM')) AS can_confirm,
+       MAX(permission IN ('BOOKING_MANAGE', 'BOOKING_CANCEL')) AS can_cancel
+FROM staff_permissions
+WHERE permission IN ('BOOKING_MANAGE', 'BOOKING_CONFIRM', 'BOOKING_CANCEL')
+GROUP BY staff_id;

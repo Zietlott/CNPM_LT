@@ -75,27 +75,26 @@ class TrainerService
         int $experienceYears,
         ?string $description = null
     ): int {
-        $sql = "INSERT INTO personal_trainer
-                    (full_name, specialty, experience_years, description)
-                VALUES
-                    (:full_name, :specialty, :experience_years, :description)";
-
-        $stmt = $this->db->prepare($sql);
-
-        $stmt->execute([
-            ':full_name' => $fullName,
-            ':specialty' => $specialty,
-            ':experience_years' => $experienceYears,
-            ':description' => $description
-        ]);
-
-        return (int) $this->db->lastInsertId();
+        $this->db->beginTransaction();
+        try {
+            $user = $this->db->prepare(
+                "INSERT INTO users (full_name, password_hash, role) VALUES (?, ?, 'PT')"
+            );
+            $user->execute([$fullName, password_hash(bin2hex(random_bytes(32)), PASSWORD_DEFAULT)]);
+            $trainerId = (int) $this->db->lastInsertId();
+            $profile = $this->db->prepare(
+                "INSERT INTO pt_profiles (user_id, specialty, experience_years, bio, hourly_rate, approval_status)
+                 VALUES (?, ?, ?, ?, NULL, 'Approved')"
+            );
+            $profile->execute([$trainerId, $specialty, $experienceYears, $description]);
+            $this->db->commit();
+            return $trainerId;
+        } catch (Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
     }
 
-    
-    /**
-     * Cập nhật thông tin huấn luyện viên.
-     */
     public function updateTrainer(
         int $trainerId,
         string $fullName,
@@ -103,53 +102,19 @@ class TrainerService
         int $experienceYears,
         ?string $description = null
     ): bool {
-        $sql = "UPDATE personal_trainer
-                SET full_name = :full_name,
-                    specialty = :specialty,
-                    experience_years = :experience_years,
-                    description = :description
-                WHERE trainer_id = :trainer_id";
-
-        $stmt = $this->db->prepare($sql);
-
-        return $stmt->execute([
-            ':trainer_id' => $trainerId,
-            ':full_name' => $fullName,
-            ':specialty' => $specialty,
-            ':experience_years' => $experienceYears,
-            ':description' => $description
-        ]);
+        $stmt = $this->db->prepare(
+            "UPDATE pt_profiles p JOIN users u ON u.id = p.user_id
+             SET u.full_name = ?, p.specialty = ?, p.experience_years = ?, p.bio = ?
+             WHERE p.user_id = ?"
+        );
+        return $stmt->execute([$fullName, $specialty, $experienceYears, $description, $trainerId]);
     }
 
-    
-    /**
-     * Bật hoặc tắt trạng thái hoạt động của PT.
-     */
-    public function updateTrainerStatus(
-        int $trainerId,
-        bool $isActive
-    ): bool {
-        $sql = "UPDATE personal_trainer
-                SET is_active = :is_active
-                WHERE trainer_id = :trainer_id";
-
-        $stmt = $this->db->prepare($sql);
-
-        $stmt->bindValue(
-            ':is_active',
-            $isActive ? 1 : 0,
-            PDO::PARAM_INT
-        );
-
-        $stmt->bindValue(
-            ':trainer_id',
-            $trainerId,
-            PDO::PARAM_INT
-        );
-
-        return $stmt->execute();
+    public function updateTrainerStatus(int $trainerId, bool $isActive): bool
+    {
+        $stmt = $this->db->prepare("UPDATE pt_profiles SET accepting_bookings = ? WHERE user_id = ?");
+        return $stmt->execute([(int) $isActive, $trainerId]);
     }
-
 
     public function findTrainerById(int $trainerId): ?array
     {

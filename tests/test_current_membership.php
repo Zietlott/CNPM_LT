@@ -65,10 +65,10 @@ try {
     }
 
     $stmt = $db->prepare(
-        "INSERT INTO membership
-            (member_id, plan_id, start_date, end_date, status)
-         VALUES
-            (?, ?, CURDATE(), DATE_ADD(CURDATE(), INTERVAL 1 MONTH), 'active')"
+        "INSERT INTO memberships
+            (member_id, plan_id, plan_name_snapshot, price_snapshot, duration_days_snapshot, start_date, end_date, status)
+         SELECT ?, id, name, price, duration_days, CURDATE(), DATE_ADD(CURDATE(), INTERVAL 1 MONTH), 'Active'
+         FROM membership_plans WHERE id = ?"
     );
 
     $stmt->execute([(int) $memberId, (int) $planId]);

@@ -86,16 +86,21 @@ class MembershipService
         }
 
         // Tạo đăng ký mới, chưa kích hoạt gói
-        $sql = "INSERT INTO membership
-                    (member_id, plan_id, status, start_date, end_date)
-                VALUES
-                    (:member_id, :plan_id, 'pending', NULL, NULL)";
+        $sql = "INSERT INTO memberships
+                    (member_id, plan_id, plan_name_snapshot, price_snapshot, duration_days_snapshot)
+                SELECT :member_id, id, name, price, duration_days
+                FROM membership_plans
+                WHERE id = :plan_id AND status = 'Active'";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
             'member_id' => $memberId,
             'plan_id' => $planId
         ]);
+
+        if ($stmt->rowCount() !== 1) {
+            throw new InvalidArgumentException('Goi tap khong ton tai hoac da ngung ban');
+        }
 
         return (int) $this->db->lastInsertId();
     }
@@ -114,16 +119,15 @@ class MembershipService
                     ms.membership_id,
                     ms.member_id,
                     ms.plan_id,
-                    mp.name AS plan_name,
-                    mp.price,
-                    mp.duration_months,
+                    stored.plan_name_snapshot AS plan_name,
+                    stored.price_snapshot AS price,
+                    GREATEST(1, ROUND(stored.duration_days_snapshot / 30)) AS duration_months,
                     ms.start_date,
                     ms.end_date,
                     ms.status,
                     ms.created_at
                 FROM membership ms
-                INNER JOIN membership_plan mp
-                    ON ms.plan_id = mp.plan_id
+                INNER JOIN memberships stored ON stored.id = ms.membership_id
                 WHERE ms.member_id = :member_id
                 ORDER BY ms.created_at DESC,
                          ms.membership_id DESC";
@@ -150,19 +154,18 @@ class MembershipService
                     ms.membership_id,
                     ms.member_id,
                     ms.plan_id,
-                    mp.name AS plan_name,
-                    mp.price,
-                    mp.duration_months,
+                    stored.plan_name_snapshot AS plan_name,
+                    stored.price_snapshot AS price,
+                    GREATEST(1, ROUND(stored.duration_days_snapshot / 30)) AS duration_months,
                     ms.start_date,
                     ms.end_date,
                     ms.status
                 FROM membership ms
-                INNER JOIN membership_plan mp
-                    ON ms.plan_id = mp.plan_id
+                INNER JOIN memberships stored ON stored.id = ms.membership_id
                 WHERE ms.member_id = :member_id
                   AND ms.status = 'active'
-                  AND ms.start_date <= CURDATE()
-                  AND ms.end_date >= CURDATE()
+                  AND ms.start_date <= DATE(UTC_TIMESTAMP() + INTERVAL 7 HOUR)
+                  AND ms.end_date >= DATE(UTC_TIMESTAMP() + INTERVAL 7 HOUR)
                 ORDER BY ms.end_date DESC,
                          ms.membership_id DESC
                 LIMIT 1";

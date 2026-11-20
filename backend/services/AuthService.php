@@ -47,7 +47,7 @@ class AuthService
         }
 
         // Kiểm tra email hoặc số điện thoại đã tồn tại
-        $sql = "SELECT member_id FROM member
+        $sql = "SELECT id FROM users
                 WHERE email = :email OR phone = :phone
                 LIMIT 1";
 
@@ -72,10 +72,11 @@ class AuthService
 
         // Thêm tài khoản vào database
         try {
-            $sql = "INSERT INTO member
-                    (full_name, email, phone, password_hash)
+            $this->db->beginTransaction();
+            $sql = "INSERT INTO users
+                    (full_name, email, phone, password_hash, role)
                     VALUES
-                    (:full_name, :email, :phone, :password_hash)";
+                    (:full_name, :email, :phone, :password_hash, 'Member')";
 
             $stmt = $this->db->prepare($sql);
 
@@ -86,13 +87,21 @@ class AuthService
                 'password_hash' => $passwordHash
             ]);
 
+            $memberId = (int) $this->db->lastInsertId();
+            $profile = $this->db->prepare('INSERT INTO member_profiles (user_id) VALUES (?)');
+            $profile->execute([$memberId]);
+            $this->db->commit();
+
             return [
                 'success' => true,
                 'message' => 'Đăng ký thành công!',
-                'member_id' => (int) $this->db->lastInsertId()
+                'member_id' => $memberId
             ];
 
         } catch (PDOException $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
             if ($e->getCode() === '23000') {
                 return [
                     'success' => false,
@@ -125,9 +134,8 @@ class AuthService
         }
 
         // Tìm tài khoản theo email
-        $sql = "SELECT member_id, full_name, email,
-                    password_hash, role, status
-                FROM member
+        $sql = "SELECT id, full_name, email, password_hash, role, status
+                FROM users
                 WHERE email = :email
                 LIMIT 1";
 
@@ -150,7 +158,7 @@ class AuthService
         }
 
         // Kiểm tra tài khoản bị khóa
-        if ($user['status'] !== 'active') {
+        if ($user['status'] !== 'Active') {
             return [
                 'success' => false,
                 'message' => 'Tài khoản đã bị khóa.'
@@ -162,10 +170,10 @@ class AuthService
             'success' => true,
             'message' => 'Đăng nhập thành công!',
             'user' => [
-                'member_id' => (int) $user['member_id'],
+                'member_id' => (int) $user['id'],
                 'full_name' => $user['full_name'],
                 'email' => $user['email'],
-                'role' => $user['role']
+                'role' => $user['role'] === 'PT' ? 'trainer' : strtolower($user['role'])
             ]
         ];
     }

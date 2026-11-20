@@ -4,7 +4,7 @@
  *
  * Dùng:   $pdo = getDBConnection();
  *
- * Mặc định khớp XAMPP/Laragon: 127.0.0.1:3306, database `fitzone`, user `root`,
+ * Mặc định khớp XAMPP/Laragon: 127.0.0.1:3306, database `fitness_center`, user `root`,
  * mật khẩu rỗng. Máy khác thì đặt biến môi trường DB_HOST, DB_PORT, DB_NAME,
  * DB_USER, DB_PASS thay vì sửa file này.
  */
@@ -28,14 +28,15 @@ if (!function_exists('getDBConnection')) {
             'mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4',
             $env('HOST', '127.0.0.1'),
             $env('PORT', '3306'),
-            $env('NAME', 'fitzone')
+            $env('NAME', 'fitness_center')
         );
 
         try {
-            $pdo = new PDO($dsn, $env('USER', 'root'), $env('PASS', '123456'), [
+            $pdo = new PDO($dsn, $env('USER', 'root'), $env('PASS', ''), [
                 PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
                 PDO::ATTR_EMULATE_PREPARES   => false,
+                PDO::MYSQL_ATTR_INIT_COMMAND => "SET time_zone = '+00:00'",
             ]);
         } catch (PDOException $e) {
             // Ghi log, không trả thông tin kết nối ra ngoài.

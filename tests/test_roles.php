@@ -8,14 +8,14 @@ echo "1. Chua dang nhap: ";
 echo !isAdmin() && !isMember() ? "PASS\n" : "FAIL\n";
 
 // Giả lập tài khoản Member
-$_SESSION['member_id'] = 1;
+$_SESSION['member_id'] = 7;
 $_SESSION['role'] = 'member';
 
 echo "2. Tai khoan Member: ";
 echo isMember() && !isAdmin() ? "PASS\n" : "FAIL\n";
 
 // Giả lập tài khoản Admin
-$_SESSION['member_id'] = 2;
+$_SESSION['member_id'] = 1;
 $_SESSION['role'] = 'admin';
 
 echo "3. Tai khoan Admin: ";

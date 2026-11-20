@@ -6,6 +6,7 @@ $db = getDBConnection();
 $scheduleIds = [];
 $bookingIds = [];
 $results = [];
+$hasFailures = false;
 
 $assert = static function (string $name, bool $passed) use (&$results): void {
     $results[] = [$name, $passed];
@@ -31,17 +32,17 @@ try {
 
     $workDate = date('Y-m-d', strtotime('+3 days'));
     $scheduleDefinitions = [
-        [1, '13:00:00', '14:00:00'],
-        [1, '13:30:00', '14:30:00'],
-        [2, '13:00:00', '14:00:00']
+        [4, '13:00:00', '14:00:00'],
+        [4, '13:30:00', '14:30:00'],
+        [5, '13:00:00', '14:00:00']
     ];
 
     foreach ($scheduleDefinitions as [$trainerId, $startTime, $endTime]) {
         $stmt = $db->prepare(
-            "INSERT INTO trainer_schedule
-                (trainer_id, work_date, start_time, end_time, status)
-             VALUES
-                (:trainer_id, :work_date, :start_time, :end_time, 'available')"
+            "INSERT INTO schedules (pt_id, start_at, end_at)
+             SELECT :trainer_id, TIMESTAMP(d.work_date, :start_time) - INTERVAL 7 HOUR,
+                    TIMESTAMP(d.work_date, :end_time) - INTERVAL 7 HOUR
+             FROM (SELECT :work_date AS work_date) d"
         );
         $stmt->execute([
             'trainer_id' => $trainerId,
@@ -53,7 +54,7 @@ try {
     }
 
     $service = new BookingService($db);
-    $availableSlots = $service->getAvailableSlots(1, $workDate);
+    $availableSlots = $service->getAvailableSlots(4, $workDate);
     $assert(
         'available schedule is listed',
         in_array(
@@ -164,7 +165,7 @@ try {
             && $cancelledBooking['cancel_reason'] === 'Booking test cleanup'
     );
 
-    $availableSlots = $service->getAvailableSlots(1, $workDate);
+    $availableSlots = $service->getAvailableSlots(4, $workDate);
     $assert(
         'cancelled booking releases its slot',
         in_array(
@@ -178,7 +179,7 @@ try {
     );
 
     $databaseNow = new DateTimeImmutable(
-        $db->query('SELECT CURRENT_TIMESTAMP')->fetchColumn()
+        $db->query('SELECT UTC_TIMESTAMP() + INTERVAL 7 HOUR')->fetchColumn()
     );
     $cutoffSlot = $databaseNow->setTime(
         (int) $databaseNow->format('H'),
@@ -197,7 +198,7 @@ try {
         $stmt = $db->prepare(
             'SELECT COUNT(*)
              FROM trainer_schedule
-             WHERE trainer_id = 3
+             WHERE trainer_id = 6
                AND work_date = :work_date
                AND start_time < :end_time
                AND end_time > :start_time'
@@ -222,10 +223,10 @@ try {
     }
 
     $stmt = $db->prepare(
-        "INSERT INTO trainer_schedule
-            (trainer_id, work_date, start_time, end_time, status)
-         VALUES
-            (3, :work_date, :start_time, :end_time, 'available')"
+        "INSERT INTO schedules (pt_id, start_at, end_at)
+             SELECT 6, TIMESTAMP(d.work_date, :start_time) - INTERVAL 7 HOUR,
+                    TIMESTAMP(d.work_date, :end_time) - INTERVAL 7 HOUR
+             FROM (SELECT :work_date AS work_date) d"
     );
     $stmt->execute([
         'work_date' => $cutoffSchedule['work_date'],
@@ -262,25 +263,27 @@ try {
         echo ($passed ? 'PASS' : 'FAIL') . ': ' . $name . PHP_EOL;
     }
 
-    if (in_array(false, array_column($results, 1), true)) {
-        exit(1);
-    }
+    $hasFailures = in_array(false, array_column($results, 1), true);
 } finally {
     foreach ($bookingIds as $bookingId) {
-        $stmt = $db->prepare('DELETE FROM notification WHERE booking_id = :booking_id');
+        $stmt = $db->prepare("DELETE FROM notifications WHERE type = 'Booking' AND reference_id = :booking_id");
         $stmt->execute(['booking_id' => $bookingId]);
-        $stmt = $db->prepare('DELETE FROM booking_audit_log WHERE booking_id = :booking_id');
+        $stmt = $db->prepare("DELETE FROM audit_logs WHERE entity_type = 'Booking' AND entity_id = :booking_id");
         $stmt->execute(['booking_id' => $bookingId]);
-        $stmt = $db->prepare('DELETE FROM booking_change_request WHERE booking_id = :booking_id');
+        $stmt = $db->prepare('DELETE FROM booking_change_requests WHERE booking_id = :booking_id');
         $stmt->execute(['booking_id' => $bookingId]);
-        $stmt = $db->prepare('DELETE FROM booking WHERE booking_id = :booking_id');
+        $stmt = $db->prepare('DELETE FROM bookings WHERE id = :booking_id');
         $stmt->execute(['booking_id' => $bookingId]);
     }
 
     foreach ($scheduleIds as $scheduleId) {
         $stmt = $db->prepare(
-            'DELETE FROM trainer_schedule WHERE schedule_id = :schedule_id'
+            'DELETE FROM schedules WHERE id = :schedule_id'
         );
         $stmt->execute(['schedule_id' => $scheduleId]);
     }
+}
+
+if ($hasFailures) {
+    exit(1);
 }
