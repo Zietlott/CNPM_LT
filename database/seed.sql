@@ -62,14 +62,14 @@ INSERT INTO membership_status_history (membership_id, old_status, new_status, re
  (1, 'PendingPayment', 'Active', 'Thanh toán thành công', NULL);
 
 -- ---------- Schedules: mỗi PT có các khung giờ 1 tiếng, từ ngày mai +2 đến +8 ----------
--- Khung giờ: 07:00, 08:00, 17:00, 18:00 (giờ UTC trong DB; chỉnh theo timezone nhóm quy ước)
+-- Khung giờ VN: 07:00, 08:00, 17:00, 18:00 = UTC 00:00, 01:00, 10:00, 11:00 (DB lưu UTC)
 -- Bắt đầu từ +2 ngày để thỏa quy tắc "đặt trước tối thiểu 24 giờ".
 INSERT INTO schedules (pt_id, start_at, end_at, status)
 WITH RECURSIVE d (n) AS (
   SELECT 2 UNION ALL SELECT n + 1 FROM d WHERE n < 8
 ),
 h (hr) AS (
-  SELECT 7 UNION ALL SELECT 8 UNION ALL SELECT 17 UNION ALL SELECT 18
+  SELECT 0 UNION ALL SELECT 1 UNION ALL SELECT 10 UNION ALL SELECT 11
 )
 SELECT p.id,
        TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL d.n DAY), MAKETIME(h.hr, 0, 0)),
