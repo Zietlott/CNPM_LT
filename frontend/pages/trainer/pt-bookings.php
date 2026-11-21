@@ -8,7 +8,10 @@ if (!isTrainer()) {
 }
 
 $csrfToken = getCsrfToken();
-$fullName = $_SESSION['full_name'] ?? 'Huấn luyện viên';
+$sidebarRole = 'trainer';
+$activeNav = 'pt-bookings';
+$topbarLabel = 'TRAINER AREA';
+$topbarTitle = 'Booking & lịch làm việc';
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -22,44 +25,10 @@ $fullName = $_SESSION['full_name'] ?? 'Huấn luyện viên';
 </head>
 <body class="dashboard-page">
 <div class="dashboard-layout">
-    <aside class="sidebar" id="sidebar">
-        <a href="pt-bookings.php" class="brand">
-            <span class="brand-mark">F</span><span>FITZONE</span>
-        </a>
-        <p class="menu-label">HUẤN LUYỆN VIÊN</p>
-        <nav class="sidebar-nav">
-            <a href="pt-bookings.php" class="nav-item active">
-                <span class="nav-icon">▦</span><span>Booking & lịch làm việc</span>
-            </a>
-        </nav>
-        <div class="sidebar-bottom">
-            <form action="../auth/logout.php" method="POST" style="margin: 0;">
-                <input type="hidden" name="csrf_token"
-                       value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
-                <button type="submit" class="nav-item logout-link"
-                        style="width: 100%; border: none; background: transparent; text-align: left; cursor: pointer; font: inherit;">
-                    <span class="nav-icon">↪</span><span>Đăng xuất</span>
-                </button>
-            </form>
-        </div>
-    </aside>
+    <?php include __DIR__ . '/../../layouts/sidebar.php'; ?>
 
     <div class="main-area">
-        <header class="topbar">
-            <button type="button" class="menu-toggle" id="menuToggle"
-                    aria-label="Mở menu" aria-controls="sidebar" aria-expanded="false">☰</button>
-            <div class="topbar-title">
-                <span class="topbar-label">TRAINER AREA</span>
-                <h1>Booking & lịch làm việc</h1>
-            </div>
-            <div class="user-info">
-                <div class="user-avatar">PT</div>
-                <div class="user-text">
-                    <strong><?= htmlspecialchars($fullName, ENT_QUOTES, 'UTF-8') ?></strong>
-                    <span>Huấn luyện viên</span>
-                </div>
-            </div>
-        </header>
+        <?php include __DIR__ . '/../../layouts/topbar.php'; ?>
 
         <main class="dashboard-content">
             <section class="page-intro">
@@ -111,7 +80,18 @@ $fullName = $_SESSION['full_name'] ?? 'Huấn luyện viên';
                         <h2>Booking hội viên</h2>
                     </div>
                 </div>
-                <div id="trainerBookings" class="booking-list">
+                <div class="booking-list-toolbar">
+                    <label for="bookingFilter" class="form-label">Lọc lịch tập</label>
+                    <select id="bookingFilter" class="form-select" aria-controls="trainerBookings">
+                        <option value="all">Tất cả</option>
+                        <option value="change">Yêu cầu đổi lịch</option>
+                        <option value="pending">Chờ xác nhận</option>
+                        <option value="confirmed">Đã xác nhận</option>
+                        <option value="completed">Đã hoàn thành</option>
+                        <option value="closed">Đã hủy hoặc từ chối</option>
+                    </select>
+                </div>
+                <div id="trainerBookings" class="booking-list" aria-live="polite">
                     <p class="booking-list-empty">Đang tải booking...</p>
                 </div>
             </section>
@@ -226,6 +206,7 @@ document.addEventListener("DOMContentLoaded", function () {
                             status + "</span>" +
                     "</div>" +
                     '<p class="booking-slot-detail">' +
+                        (booking.pending_change_request_id ? '<strong>Lịch hiện tại</strong><br>' : '') +
                         escapeHtml(slot.start_time.slice(0, 5)) + " - " +
                         escapeHtml(slot.end_time.slice(0, 5)) +
                         (Number(slot.has_booking) === 1 ? " · Đã có booking, không thể sửa/xóa" : "") +
@@ -236,8 +217,30 @@ document.addEventListener("DOMContentLoaded", function () {
         }).join("");
     }
 
+    const bookingFilter = document.getElementById("bookingFilter");
+    let allBookings = null;
+
+    bookingFilter.addEventListener("change", renderBookings);
+
     async function loadBookings() {
-        const bookings = await requestJson("trainer-bookings.php");
+        allBookings = await requestJson("trainer-bookings.php");
+        renderBookings();
+    }
+
+    function renderBookings() {
+        if (allBookings === null) return;
+
+        const filter = bookingFilter.value;
+        const bookings = allBookings.filter(function (booking) {
+            if (filter === "all") return true;
+            if (filter === "change") return Boolean(booking.pending_change_request_id);
+            if (filter === "closed") return ["cancelled", "rejected", "expired"].includes(booking.status);
+            return booking.status === filter;
+        });
+        if (bookings.length === 0 && allBookings.length > 0) {
+            bookingsElement.innerHTML = '<p class="booking-list-empty">Không có lịch tập phù hợp với bộ lọc.</p>';
+            return;
+        }
         if (bookings.length === 0) {
             bookingsElement.innerHTML =
                 '<p class="booking-list-empty">Chưa có hội viên đặt lịch với bạn.</p>';
@@ -276,7 +279,7 @@ document.addEventListener("DOMContentLoaded", function () {
             }
 
             const changeDetails = booking.pending_change_request_id
-                ? '<p class="booking-change-pending">Đề nghị đổi sang ' +
+                ? '<p class="booking-change-pending"><strong>Lịch đề nghị</strong><br>' +
                     escapeHtml(formatDate(booking.requested_work_date)) + " · " +
                     escapeHtml(booking.requested_start_time.slice(0, 5)) + " - " +
                     escapeHtml(booking.requested_end_time.slice(0, 5)) +

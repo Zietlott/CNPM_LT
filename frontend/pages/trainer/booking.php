@@ -1,4 +1,3 @@
-
 <?php
 require_once __DIR__ . '/../../../backend/helpers/auth.php';
 
@@ -8,6 +7,10 @@ if (!isMember()) {
 }
 
 $pageTitle = 'Đặt lịch tập';
+$sidebarRole = 'member';
+$activeNav = 'booking';
+$topbarLabel = 'MEMBER AREA';
+$topbarTitle = $pageTitle;
 $csrfToken = getCsrfToken();
 ?>
 <!DOCTYPE html>
@@ -23,40 +26,10 @@ $csrfToken = getCsrfToken();
 <body class="dashboard-page">
 <div class="dashboard-layout">
 
-    <aside class="sidebar" id="sidebar">
-        <a href="../member/dashboard.php" class="brand">
-            <span class="brand-mark">F</span><span>FITZONE</span>
-        </a>
-        <p class="menu-label">MENU CHÍNH</p>
-        <nav class="sidebar-nav">
-            <a href="../member/dashboard.php" class="nav-item"><span class="nav-icon">⌂</span><span>Trang chủ</span></a>
-            <a href="../member/membership.php" class="nav-item"><span class="nav-icon">▣</span><span>Gói hội viên</span></a>
-            <a href="trainer.php" class="nav-item"><span class="nav-icon">♙</span><span>Huấn luyện viên</span></a>
-            <a href="booking.php" class="nav-item active"><span class="nav-icon">▦</span><span>Đặt lịch tập</span></a>
-            <a href="schedule.php" class="nav-item"><span class="nav-icon">◷</span><span>Lịch PT</span></a>
-            <a href="profile.php" class="nav-item"><span class="nav-icon">⚙</span><span>Thông tin cá nhân</span></a>
-        </nav>
-        <div class="sidebar-bottom">
-            <a href="../auth/login.php" class="nav-item logout-link"><span class="nav-icon">↪</span><span>Đăng xuất</span></a>
-        </div>
-    </aside>
+    <?php include __DIR__ . '/../../layouts/sidebar.php'; ?>
 
     <div class="main-area">
-        <header class="topbar">
-            <button type="button" class="menu-toggle" id="menuToggle"
-                    aria-label="Mở menu" aria-controls="sidebar" aria-expanded="false">☰</button>
-            <div class="topbar-title">
-                <span class="topbar-label">MEMBER AREA</span>
-                <h1>Đặt lịch tập</h1>
-            </div>
-            <div class="user-info">
-                <div class="user-avatar">HV</div>
-                <div class="user-text">
-                    <strong><?= htmlspecialchars($_SESSION['full_name'] ?? 'Hội viên', ENT_QUOTES, 'UTF-8') ?></strong>
-                    <span>Chào mừng bạn!</span>
-                </div>
-            </div>
-        </header>
+        <?php include __DIR__ . '/../../layouts/topbar.php'; ?>
 
         <main class="dashboard-content">
             <section class="page-intro">
@@ -132,22 +105,34 @@ $csrfToken = getCsrfToken();
                         <h2>Lịch tập của tôi</h2>
                     </div>
                 </div>
+                <div class="booking-list-toolbar">
+                    <label for="bookingFilter" class="form-label">Lọc lịch tập</label>
+                    <select id="bookingFilter" class="form-select" aria-controls="myBookings">
+                        <option value="all">Tất cả</option>
+                        <option value="change">Yêu cầu đổi lịch</option>
+                        <option value="pending">Chờ xác nhận</option>
+                        <option value="confirmed">Đã xác nhận</option>
+                        <option value="completed">Đã hoàn thành</option>
+                        <option value="closed">Đã hủy hoặc từ chối</option>
+                    </select>
+                </div>
                 <div id="myBookings" class="booking-list" aria-live="polite">
                     <p class="booking-list-empty">Đang tải lịch tập...</p>
                 </div>
             </section>
 
-            <dialog id="changeBookingDialog" class="booking-dialog">
+            <dialog id="changeBookingDialog" class="booking-dialog" aria-labelledby="changeBookingTitle">
                 <form id="changeBookingForm">
                     <div class="booking-dialog-heading">
                         <div>
                             <p class="banner-label">RESCHEDULE REQUEST</p>
-                            <h2>Yêu cầu đổi lịch</h2>
+                            <h2 id="changeBookingTitle">Yêu cầu đổi lịch</h2>
                         </div>
                         <button type="button" class="booking-dialog-close"
                                 data-close-dialog aria-label="Đóng">×</button>
                     </div>
                     <input type="hidden" id="changeBookingId">
+                    <p class="booking-change-pending"><strong>Lịch hiện tại</strong><br><span id="currentBookingSlot"></span></p>
                     <div class="mb-3">
                         <label for="changeTrainer" class="form-label">Huấn luyện viên hiện tại</label>
                         <select id="changeTrainer" class="form-select" disabled></select>
@@ -305,9 +290,31 @@ document.addEventListener("DOMContentLoaded", function () {
         }
     }
 
-    async function loadBookings() {
-        const bookings = await requestJson(apiBase + "mine.php");
+    const bookingFilter = document.getElementById("bookingFilter");
+    let allBookings = null;
 
+    bookingFilter.addEventListener("change", renderBookings);
+
+    async function loadBookings() {
+        allBookings = await requestJson(apiBase + "mine.php");
+        renderBookings();
+    }
+
+    function renderBookings() {
+        if (allBookings === null) return;
+
+        const filter = bookingFilter.value;
+        const bookings = allBookings.filter(function (booking) {
+            if (filter === "all") return true;
+            if (filter === "change") return Boolean(booking.pending_change_request_id);
+            if (filter === "closed") return ["cancelled", "rejected", "expired"].includes(booking.status);
+            return booking.status === filter;
+        });
+
+        if (bookings.length === 0 && allBookings.length > 0) {
+            bookingList.innerHTML = '<p class="booking-list-empty">Không có lịch tập phù hợp với bộ lọc.</p>';
+            return;
+        }
         if (bookings.length === 0) {
             bookingList.innerHTML = '<p class="booking-list-empty">Bạn chưa có lịch tập nào.</p>';
             return;
@@ -433,6 +440,8 @@ document.addEventListener("DOMContentLoaded", function () {
         if (changeButton) {
             document.getElementById("changeBookingId").value = changeButton.dataset.changeId;
             changeTrainerSelect.value = changeButton.dataset.trainerId;
+            document.getElementById("currentBookingSlot").textContent =
+                changeButton.closest(".booking-list-item").querySelector(".booking-slot-detail").textContent;
             changeDateInput.min = localDate;
             changeDateInput.value = changeButton.dataset.workDate;
             document.getElementById("changeReason").value = "";

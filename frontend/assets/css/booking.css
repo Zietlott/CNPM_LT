@@ -116,6 +116,23 @@
     font-weight: 800;
 }
 
+.booking-list-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    margin-bottom: 16px;
+}
+
+.booking-list-toolbar .form-label {
+    margin: 0;
+    font-weight: 600;
+}
+
+.booking-list-toolbar .form-select {
+    width: min(100%, 230px);
+}
+
 .booking-list {
     display: flex;
     flex-direction: column;
