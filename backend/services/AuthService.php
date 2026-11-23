@@ -297,4 +297,258 @@ class AuthService
         }
     }
 
+    /**
+     * AUTH-06: Yêu cầu đặt lại mật khẩu qua email.
+     */
+    public function requestPasswordReset(string $email): array
+    {
+        $email = strtolower(trim($email));
+
+        $genericResponse = [
+            'success' => true,
+            'message' => 'Nếu email đã đăng ký và tài khoản đang hoạt động, chúng tôi sẽ gửi hướng dẫn đặt lại mật khẩu.'
+        ];
+
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return [
+                'success' => false,
+                'message' => 'Email không hợp lệ.'
+            ];
+        }
+
+        try {
+            $this->db->beginTransaction();
+
+            // Khóa dòng tài khoản để tuần tự hóa các yêu cầu
+            // đặt lại mật khẩu cho cùng một người dùng.
+            $stmt = $this->db->prepare(
+                "SELECT id
+                 FROM users
+                 WHERE email = ?
+                   AND status = 'Active'
+                 LIMIT 1
+                 FOR UPDATE"
+            );
+
+            $stmt->execute([$email]);
+            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$user) {
+                $this->db->commit();
+                return $genericResponse;
+            }
+
+            $userId = (int) $user['id'];
+
+            // Chống gửi yêu cầu liên tục trong vòng 60 giây.
+            $rateLimit = $this->db->prepare(
+                "SELECT id
+                 FROM password_reset_tokens
+                 WHERE user_id = ?
+                   AND created_at > DATE_SUB(NOW(), INTERVAL 60 SECOND)
+                 LIMIT 1"
+            );
+
+            $rateLimit->execute([$userId]);
+
+            if ($rateLimit->fetch()) {
+                $this->db->commit();
+                return $genericResponse;
+            }
+
+            // Token gốc chỉ dùng để gửi qua email.
+            $token = bin2hex(random_bytes(32));
+            $tokenHash = hash('sha256', $token);
+
+            // Vô hiệu hóa các token cũ chưa sử dụng.
+            $invalidate = $this->db->prepare(
+                "UPDATE password_reset_tokens
+                 SET used_at = NOW()
+                 WHERE user_id = ?
+                   AND used_at IS NULL"
+            );
+
+            $invalidate->execute([$userId]);
+
+            // Chỉ lưu hash, token hết hạn sau 15 phút.
+            $insert = $this->db->prepare(
+                "INSERT INTO password_reset_tokens
+                    (user_id, token_hash, expires_at)
+                 VALUES
+                    (?, ?, DATE_ADD(NOW(), INTERVAL 15 MINUTE))"
+            );
+
+            $insert->execute([
+                $userId,
+                $tokenHash
+            ]);
+
+            $tokenId = (int) $this->db->lastInsertId();
+
+            $this->db->commit();
+
+            // Chỉ gửi email sau khi lưu token thành công.
+            require_once __DIR__ . '/MailService.php';
+
+            $mailService = new MailService();
+
+            if (!$mailService->sendPasswordResetEmail($email, $token)) {
+                // Token chưa gửi được thì vô hiệu hóa.
+                $disable = $this->db->prepare(
+                    "UPDATE password_reset_tokens
+                     SET used_at = NOW()
+                     WHERE id = ?
+                       AND used_at IS NULL"
+                );
+
+                $disable->execute([$tokenId]);
+
+                error_log('Password reset email could not be delivered.');
+            }
+
+            return $genericResponse;
+
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+
+            // Không ghi token hoặc URL khôi phục vào log.
+            error_log('Password reset request failed: ' . get_class($e));
+
+            return [
+                'success' => false,
+                'message' => 'Có lỗi hệ thống, vui lòng thử lại sau.'
+            ];
+        }
+    }
+
+    /**
+     * AUTH-07: Đặt lại mật khẩu bằng token gửi qua email.
+     */
+    public function resetPassword(
+        string $token,
+        string $newPassword,
+        string $confirmPassword
+    ): array {
+        $token = trim($token);
+
+        if (!preg_match('/^[a-f0-9]{64}$/', $token)) {
+            return [
+                'success' => false,
+                'message' => 'Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.'
+            ];
+        }
+
+        if (strlen($newPassword) < 8) {
+            return [
+                'success' => false,
+                'message' => 'Mật khẩu mới phải có ít nhất 8 ký tự.'
+            ];
+        }
+
+        if ($newPassword !== $confirmPassword) {
+            return [
+                'success' => false,
+                'message' => 'Xác nhận mật khẩu không khớp.'
+            ];
+        }
+
+        try {
+            $this->db->beginTransaction();
+
+            // Khóa bản ghi token để ngăn sử dụng đồng thời.
+            $stmt = $this->db->prepare(
+                "SELECT id, user_id
+                 FROM password_reset_tokens
+                 WHERE token_hash = ?
+                   AND used_at IS NULL
+                   AND expires_at > NOW()
+                 LIMIT 1
+                 FOR UPDATE"
+            );
+
+            $stmt->execute([hash('sha256', $token)]);
+            $resetRecord = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$resetRecord) {
+                $this->db->rollBack();
+
+                return [
+                    'success' => false,
+                    'message' => 'Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.'
+                ];
+            }
+
+            $userId = (int) $resetRecord['user_id'];
+
+            // Chỉ cho phép đặt lại mật khẩu cho tài khoản đang hoạt động.
+            $userStmt = $this->db->prepare(
+                "SELECT id
+                 FROM users
+                 WHERE id = ?
+                   AND status = 'Active'
+                 LIMIT 1
+                 FOR UPDATE"
+            );
+
+            $userStmt->execute([$userId]);
+
+            if (!$userStmt->fetch(PDO::FETCH_ASSOC)) {
+                $this->db->rollBack();
+
+                return [
+                    'success' => false,
+                    'message' => 'Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.'
+                ];
+            }
+
+            $newHash = password_hash(
+                $newPassword,
+                PASSWORD_DEFAULT
+            );
+
+            // Cập nhật mật khẩu.
+            $update = $this->db->prepare(
+                "UPDATE users
+                 SET password_hash = ?
+                 WHERE id = ?
+                   AND status = 'Active'"
+            );
+
+            $update->execute([$newHash, $userId]);
+
+            // Vô hiệu hóa tất cả token đặt lại mật khẩu của tài khoản.
+            $invalidate = $this->db->prepare(
+                "UPDATE password_reset_tokens
+                 SET used_at = NOW()
+                 WHERE user_id = ?
+                   AND used_at IS NULL"
+            );
+
+            $invalidate->execute([$userId]);
+
+            $this->db->commit();
+
+            return [
+                'success' => true,
+                'message' => 'Đặt lại mật khẩu thành công! Bạn có thể đăng nhập bằng mật khẩu mới.'
+            ];
+
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+
+            error_log(
+                'Reset password failed: ' . get_class($e)
+            );
+
+            return [
+                'success' => false,
+                'message' => 'Có lỗi hệ thống, vui lòng thử lại sau.'
+            ];
+        }
+    }
+
 }

@@ -1,5 +1,7 @@
 **
 !Dockerfile
+!composer.json
+!composer.lock
 !backend/
 !backend/**
 !frontend/

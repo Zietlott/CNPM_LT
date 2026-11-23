@@ -1,3 +1,4 @@
+
 services:
   web:
     build: .
@@ -9,9 +10,19 @@ services:
       DB_NAME: fitness_center
       DB_USER: fitzone
       DB_PASS: ${FITZONE_DB_PASSWORD:-fitzone-local-dev}
+
+      # SMTP configuration for password reset emails
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_FROM_EMAIL: no-reply@fitzone.local
+      SMTP_FROM_NAME: FitZone
+      APP_URL: http://localhost:8080
+
     depends_on:
       db:
         condition: service_healthy
+      mailpit:
+        condition: service_started
 
   db:
     image: mariadb:11.4
@@ -30,6 +41,12 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
+
+  # Local email testing service
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "127.0.0.1:8025:8025"
 
 volumes:
   db_data:
