@@ -30,16 +30,16 @@ try {
     $pdo = getDBConnection();
 
     $stmt = $pdo->prepare(
-        'SELECT member_id, full_name, email, phone,
+        'SELECT id AS member_id, full_name, email, phone,
                 role, status, created_at
-         FROM member
-         WHERE member_id = ? AND status = ?
+         FROM users
+         WHERE id = ? AND status = ?
          LIMIT 1'
     );
-
+    
     $stmt->execute([
         $user['member_id'],
-        'active'
+        'Active'
     ]);
 
     $profile = $stmt->fetch(PDO::FETCH_ASSOC);

@@ -75,7 +75,7 @@ try {
         $fullName,
         $phone,
         $user['member_id'],
-        'active'
+        'Active'
     ]);
 
     // Đồng bộ thông tin session sau khi cập nhật.
