@@ -177,4 +177,124 @@ class AuthService
             ]
         ];
     }
+
+    /**
+     * AUTH-05: Đổi mật khẩu cho người dùng đã đăng nhập.
+     */
+    public function changePassword(
+        int $userId,
+        string $currentPassword,
+        string $newPassword,
+        string $confirmPassword
+    ): array {
+
+        if ($userId <= 0) {
+            return [
+                'success' => false,
+                'message' => 'Người dùng không hợp lệ.'
+            ];
+        }
+
+        if (
+            $currentPassword === '' ||
+            $newPassword === '' ||
+            $confirmPassword === ''
+        ) {
+            return [
+                'success' => false,
+                'message' => 'Vui lòng nhập đầy đủ thông tin.'
+            ];
+        }
+
+        if (strlen($newPassword) < 8) {
+            return [
+                'success' => false,
+                'message' => 'Mật khẩu mới phải có ít nhất 8 ký tự.'
+            ];
+        }
+
+        if ($newPassword !== $confirmPassword) {
+            return [
+                'success' => false,
+                'message' => 'Xác nhận mật khẩu mới không khớp.'
+            ];
+        }
+
+        if ($currentPassword === $newPassword) {
+            return [
+                'success' => false,
+                'message' => 'Mật khẩu mới phải khác mật khẩu hiện tại.'
+            ];
+        }
+
+        try {
+            $stmt = $this->db->prepare(
+                "SELECT password_hash
+                 FROM users
+                 WHERE id = ? AND status = 'Active'
+                 LIMIT 1"
+            );
+
+            $stmt->execute([$userId]);
+            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$user) {
+                return [
+                    'success' => false,
+                    'message' => 'Tài khoản không tồn tại hoặc không hoạt động.'
+                ];
+            }
+
+            if (!password_verify(
+                $currentPassword,
+                $user['password_hash']
+            )) {
+                return [
+                    'success' => false,
+                    'message' => 'Mật khẩu hiện tại không chính xác.'
+                ];
+            }
+
+            $newHash = password_hash(
+                $newPassword,
+                PASSWORD_DEFAULT
+            );
+
+            // Chỉ cập nhật nếu mật khẩu trong DB chưa bị thay đổi.
+            $update = $this->db->prepare(
+                "UPDATE users
+                 SET password_hash = ?
+                 WHERE id = ?
+                   AND status = 'Active'
+                   AND password_hash = ?"
+            );
+
+            $update->execute([
+                $newHash,
+                $userId,
+                $user['password_hash']
+            ]);
+
+            if ($update->rowCount() !== 1) {
+                return [
+                    'success' => false,
+                    'message' => 'Mật khẩu đã thay đổi trong phiên khác. Vui lòng thử lại.'
+                ];
+            }
+
+            return [
+                'success' => true,
+                'message' => 'Đổi mật khẩu thành công!'
+            ];
+
+        } catch (PDOException $e) {
+            error_log('Change password failed: ' . $e->getMessage());
+
+            return [
+                'success' => false,
+                'message' => 'Có lỗi hệ thống, vui lòng thử lại.'
+            ];
+        }
+    }
+
 }
