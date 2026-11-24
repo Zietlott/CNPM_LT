@@ -153,7 +153,7 @@ erDiagram
 
 | Quy tắc nghiệp vụ | Cách thực hiện trong schema |
 |---|---|
-| Không có 2 Booking cùng chiếm 1 slot PT | `bookings.active_schedule_id` (cột sinh) + `UNIQUE` – chỉ tính Booking ở trạng thái AwaitingPayment/Pending/Confirmed/Completed |
+| Không có 2 Booking trùng giờ của PT hoặc Member | Transaction khóa hàng Member/PT rồi kiểm tra giao nhau giữa các khoảng giờ đang chiếm lịch |
 | Không có 2 Payment Pending cho cùng Booking/Membership | `payments.pending_booking_id`, `pending_membership_id` (cột sinh) + `UNIQUE` |
 | Payment thuộc đúng 1 Membership **hoặc** 1 Booking | `CHECK ck_payments_one_target` |
 | Chống hoàn tiền trùng | `refunds.payment_id` `UNIQUE` |

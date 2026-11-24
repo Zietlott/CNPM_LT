@@ -18,8 +18,10 @@ $scheduleId = filter_var(
     ['options' => ['min_range' => 1]]
 );
 $reason = $input['reason'] ?? '';
+$startAt = $input['newStartAt'] ?? null;
+$endAt = $input['newEndAt'] ?? null;
 
-if ($bookingId === false || $scheduleId === false || !is_string($reason)) {
+if ($bookingId === false || $scheduleId === false || !is_string($reason) || !is_string($startAt) || !is_string($endAt)) {
     bookingRespond([
         'success' => false,
         'message' => 'Thông tin yêu cầu đổi lịch không hợp lệ.',
@@ -32,7 +34,9 @@ try {
     $requestId = $controller->createMyChangeRequest(
         $bookingId,
         $scheduleId,
-        $reason
+        $reason,
+        $startAt,
+        $endAt
     );
     bookingRespond([
         'success' => true,

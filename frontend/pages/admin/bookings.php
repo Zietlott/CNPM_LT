@@ -178,6 +178,7 @@ $topbarTitle = 'Quản lý booking';
 </div>
 
 <div class="sidebar-overlay" id="sidebarOverlay"></div>
+<?php include __DIR__ . '/../../layouts/booking-confirmation.php'; ?>
 
 <!-- Data cho JS -->
 <input type="hidden" id="bookingCsrfToken" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
@@ -186,6 +187,7 @@ $topbarTitle = 'Quản lý booking';
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>
 <script src="../../assets/js/api-client.js"></script>
 <script src="../../assets/js/dashboard.js"></script>
+<script src="../../assets/js/booking-confirmation.js"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function () {
     const csrfToken     = document.getElementById("bookingCsrfToken").value;
@@ -289,8 +291,15 @@ document.addEventListener("DOMContentLoaded", function () {
         const btn = event.target.closest("[data-action]");
         if (!btn) return;
         const action = btn.dataset.action;
-        const reason = window.prompt(action === "confirm" ? "Nhập lý do xác nhận:" : "Nhập lý do hủy:") || "";
-        if (!reason.trim()) return;
+        const confirming = action === "confirm";
+        const reason = await confirmBookingAction({
+            heading: confirming ? "Xác nhận lịch tập?" : "Hủy lịch tập?",
+            detail: "Lý do được lưu trong lịch sử xử lý booking.",
+            action: confirming ? "Xác nhận" : "Hủy lịch",
+            requireReason: true,
+            danger: !confirming
+        });
+        if (reason === null) return;
         try {
             await api.post("booking/admin-bookings.php", { booking_id: btn.dataset.bookingId, action, reason });
             await loadBookings();

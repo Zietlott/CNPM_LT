@@ -106,6 +106,7 @@ try {
         'Workflow confirmation test'
     );
     $bookingId = $bookingIds[0];
+    $service->settleDemoPayment($memberId, $bookingId, true);
     $service->updateTrainerBooking($trainerAccountId, $bookingId, 'confirm');
     $stmt = $db->prepare('SELECT status FROM booking WHERE booking_id = :booking_id');
     $stmt->execute(['booking_id' => $bookingId]);
@@ -113,6 +114,14 @@ try {
         'PT can confirm its own member booking',
         $stmt->fetchColumn() === 'confirmed'
     );
+
+    $staleRequest = $service->createChangeRequest($memberId, $bookingId, $scheduleIds[1], 'Slot may close');
+    $db->prepare("UPDATE schedules SET status = 'Closed' WHERE id = ?")->execute([$scheduleIds[1]]);
+    $assert(
+        'approval rejects a slot that became unavailable',
+        !$service->reviewChangeRequest($trainerAccountId, $bookingId, $staleRequest, true)
+    );
+    $db->prepare("UPDATE schedules SET status = 'Open' WHERE id = ?")->execute([$scheduleIds[1]]);
 
     $changeRequestId = $service->createChangeRequest(
         $memberId,
@@ -149,12 +158,19 @@ try {
     ]);
     $approvedChange = $stmt->fetch();
     $assert(
-        'approved reschedule moves booking to new slot awaiting confirmation',
-        $approvedChange['status'] === 'pending'
+        'approved reschedule moves booking to new slot and preserves confirmation',
+        $approvedChange['status'] === 'confirmed'
             && (int) $approvedChange['schedule_id'] === $scheduleIds[1]
             && $approvedChange['request_status'] === 'approved'
     );
-    $service->updateTrainerBooking($trainerAccountId, $bookingId, 'confirm');
+    $history = $service->getMemberBookings($memberId);
+    $changedBooking = array_values(array_filter($history, static fn (array $row): bool =>
+        (int) $row['booking_id'] === $bookingId
+    ))[0];
+    $assert(
+        'member can see approval and automatic rejection in booking history',
+        array_column($changedBooking['change_history'], 'status') === ['approved', 'rejected']
+    );
 
     $staffBookingsBeforeGrant = $service->getStaffBookings($staffId);
     $assert(
@@ -214,6 +230,7 @@ try {
         'Admin action audit test'
     );
     $bookingIds[] = $adminBookingId;
+    $service->settleDemoPayment($memberId, $adminBookingId, true);
     $service->updateBookingAsAdmin(
         $adminId,
         $adminBookingId,
@@ -233,6 +250,27 @@ try {
     ]);
     $assert('admin manual cancellation is audited', (int) $stmt->fetchColumn() === 1);
 
+    $completedBooking = $service->createBooking($memberId, $scheduleIds[2], 'Earnings test');
+    $bookingIds[] = $completedBooking;
+    $service->settleDemoPayment($memberId, $completedBooking, true);
+    $service->updateTrainerBooking($trainerAccountId, $completedBooking, 'confirm');
+    $db->prepare(
+        'UPDATE bookings
+         SET start_at = UTC_TIMESTAMP() - INTERVAL 2 HOUR,
+             end_at = UTC_TIMESTAMP() - INTERVAL 1 HOUR
+         WHERE id = ?'
+    )->execute([$completedBooking]);
+    $service->updateTrainerBooking($trainerAccountId, $completedBooking, 'complete');
+    try {
+        $service->updateTrainerBooking($trainerAccountId, $completedBooking, 'complete');
+        $assert('a completed booking cannot be completed twice', false);
+    } catch (BookingException $error) {
+        $assert('a completed booking cannot be completed twice', $error->errorCode === 'BOOKING_STATE_INVALID');
+    }
+    $earnings = $db->prepare('SELECT COUNT(*) FROM pt_earnings WHERE booking_id = ? AND pt_id = ?');
+    $earnings->execute([$completedBooking, $trainerAccountId]);
+    $assert('successful completion records PT earnings exactly once', (int) $earnings->fetchColumn() === 1);
+
     foreach ($results as [$name, $passed]) {
         echo ($passed ? 'PASS' : 'FAIL') . ': ' . $name . PHP_EOL;
     }
@@ -247,6 +285,9 @@ try {
         ] as $sql) {
             $db->prepare($sql)->execute(['booking_id' => $bookingId]);
         }
+        $db->prepare('DELETE FROM pt_earnings WHERE booking_id = :booking_id')->execute(['booking_id' => $bookingId]);
+        $db->prepare('DELETE FROM refunds WHERE booking_id = :booking_id')->execute(['booking_id' => $bookingId]);
+        $db->prepare('DELETE FROM payments WHERE booking_id = :booking_id')->execute(['booking_id' => $bookingId]);
         $stmt = $db->prepare('DELETE FROM bookings WHERE id = :booking_id');
         $stmt->execute(['booking_id' => $bookingId]);
     }

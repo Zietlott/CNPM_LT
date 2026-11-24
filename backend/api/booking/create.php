@@ -13,8 +13,10 @@ $scheduleId = filter_var(
     ['options' => ['min_range' => 1]]
 );
 $note = $input['note'] ?? '';
+$startAt = $input['startAt'] ?? null;
+$endAt = $input['endAt'] ?? null;
 
-if ($scheduleId === false || !is_string($note)) {
+if ($scheduleId === false || !is_string($note) || !is_string($startAt) || !is_string($endAt)) {
     bookingRespond([
         'success' => false,
         'message' => 'Thông tin đặt lịch không hợp lệ.',
@@ -24,14 +26,14 @@ if ($scheduleId === false || !is_string($note)) {
 
 try {
     $controller = new BookingController();
-    $bookingId = $controller->createMyBooking($scheduleId, $note);
+    $bookingId = $controller->createMyBooking($scheduleId, $note, $startAt, $endAt);
 
     bookingRespond([
         'success' => true,
-        'message' => 'Đã gửi yêu cầu đặt lịch, vui lòng chờ xác nhận.',
+        'message' => 'Đã giữ chỗ trong 15 phút. Vui lòng thanh toán demo.',
         'data' => [
             'booking_id' => $bookingId,
-            'status' => 'pending'
+            'status' => 'awaitingpayment'
         ]
     ], 201);
 } catch (Throwable $error) {

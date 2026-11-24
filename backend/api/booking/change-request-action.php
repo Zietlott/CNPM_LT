@@ -39,7 +39,7 @@ try {
         $controller->cancelMyChangeRequest($bookingId, $requestId);
     } elseif (in_array($action, ['approve', 'reject'], true)) {
         bookingRequireRole('trainer');
-        $controller->reviewMyChangeRequest(
+        $approved = $controller->reviewMyChangeRequest(
             $bookingId,
             $requestId,
             $action === 'approve',
@@ -57,7 +57,8 @@ try {
         'success' => true,
         'message' => $action === 'cancel'
             ? 'Đã hủy yêu cầu đổi lịch.'
-            : 'Đã xử lý yêu cầu đổi lịch.'
+            : ($approved ? 'Đã duyệt yêu cầu đổi lịch.' : 'Yêu cầu đổi lịch đã bị từ chối.'),
+        'data' => ['approved' => $approved ?? null]
     ]);
 } catch (Throwable $error) {
     bookingHandleError($error);

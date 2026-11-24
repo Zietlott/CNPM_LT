@@ -103,9 +103,12 @@ $topbarTitle = 'Booking & lịch làm việc';
     </div>
 </div>
 <div class="sidebar-overlay" id="sidebarOverlay"></div>
+<?php include __DIR__ . '/../../layouts/booking-confirmation.php'; ?>
 <input type="hidden" id="bookingCsrfToken"
        value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
 <script src="../../assets/js/dashboard.js"></script>
+<script src="../../assets/js/booking-confirmation.js"></script>
+<script src="../../assets/js/booking-history.js"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function () {
     const apiBase = "../../../backend/api/booking/";
@@ -206,7 +209,6 @@ document.addEventListener("DOMContentLoaded", function () {
                             status + "</span>" +
                     "</div>" +
                     '<p class="booking-slot-detail">' +
-                        (booking.pending_change_request_id ? '<strong>Lịch hiện tại</strong><br>' : '') +
                         escapeHtml(slot.start_time.slice(0, 5)) + " - " +
                         escapeHtml(slot.end_time.slice(0, 5)) +
                         (Number(slot.has_booking) === 1 ? " · Đã có booking, không thể sửa/xóa" : "") +
@@ -259,13 +261,20 @@ document.addEventListener("DOMContentLoaded", function () {
                     escapeHtml(booking.booking_id) + '">Từ chối</button>'
                 );
             }
-            if (booking.status === "confirmed") {
+            const canComplete = Number(booking.can_complete) === 1;
+            if (canComplete) {
                 actions.push(
                     '<button type="button" class="booking-management-button" data-action="complete" data-booking-id="' +
                     escapeHtml(booking.booking_id) + '">Đánh dấu hoàn thành</button>'
                 );
             }
-            if (booking.pending_change_request_id) {
+            if (Number(booking.can_cancel) === 1) {
+                actions.push(
+                    '<button type="button" class="booking-cancel-button" data-action="cancel" data-booking-id="' +
+                    escapeHtml(booking.booking_id) + '">Hủy lịch</button>'
+                );
+            }
+            if (booking.pending_change_request_id && !canComplete) {
                 actions.push(
                     '<button type="button" class="booking-management-button" data-change-action="approve" data-booking-id="' +
                     escapeHtml(booking.booking_id) + '" data-request-id="' +
@@ -295,6 +304,7 @@ document.addEventListener("DOMContentLoaded", function () {
                             escapeHtml(labels[booking.status] || "Không xác định") + "</span>" +
                     "</div>" +
                     '<p class="booking-slot-detail">' +
+                        (booking.pending_change_request_id ? '<strong>Lịch hiện tại</strong><br>' : '') +
                         escapeHtml(formatDate(booking.work_date)) + " · " +
                         escapeHtml(booking.start_time.slice(0, 5)) + " - " +
                         escapeHtml(booking.end_time.slice(0, 5)) +
@@ -307,7 +317,7 @@ document.addEventListener("DOMContentLoaded", function () {
                         ? '<p class="booking-cancel-reason"><strong>Lý do:</strong> ' +
                             escapeHtml(booking.cancel_reason) + "</p>"
                         : "") +
-                    changeDetails +
+                    changeDetails + renderChangeHistory(booking.change_history) +
                 "</div>" +
                 '<div class="booking-actions">' + actions.join("") + "</div>" +
             "</article>";
@@ -365,7 +375,14 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         const deactivateButton = event.target.closest("[data-deactivate-schedule]");
-        if (!deactivateButton || !window.confirm("Khóa khung giờ này?")) return;
+        if (!deactivateButton) return;
+        const confirmation = await confirmBookingAction({
+            heading: "Khóa khung giờ?",
+            detail: "Hội viên sẽ không thể đặt buổi tập trong khung giờ này.",
+            action: "Khóa khung giờ",
+            danger: true
+        });
+        if (confirmation === null) return;
         try {
             await requestJson("trainer-schedules.php", {
                 method: "DELETE",
@@ -389,11 +406,17 @@ document.addEventListener("DOMContentLoaded", function () {
         if (changeButton) {
             let reason = "";
             if (changeButton.dataset.changeAction === "reject") {
-                reason = window.prompt("Nhập lý do từ chối đổi lịch:") || "";
-                if (!reason.trim()) return;
+                reason = await confirmBookingAction({
+                    heading: "Từ chối đổi lịch?",
+                    detail: "Hội viên sẽ thấy lý do từ chối. Lịch tập hiện tại được giữ nguyên.",
+                    action: "Từ chối đổi lịch",
+                    requireReason: true,
+                    danger: true
+                });
+                if (reason === null) return;
             }
             try {
-                await requestJson("change-request-action.php", {
+                const result = await requestJson("change-request-action.php", {
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",
@@ -407,7 +430,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     })
                 });
                 await loadBookings();
-                showFeedback("Đã xử lý yêu cầu đổi lịch.");
+                showFeedback(result.approved ? "Đã duyệt yêu cầu đổi lịch." : "Yêu cầu đổi lịch đã bị từ chối.");
             } catch (error) {
                 showFeedback(error.message, true);
             }
@@ -417,17 +440,36 @@ document.addEventListener("DOMContentLoaded", function () {
         const actionButton = event.target.closest("[data-action]");
         if (!actionButton) return;
 
-        let reason = "";
-        if (actionButton.dataset.action === "reject") {
-            reason = window.prompt("Nhập lý do từ chối booking:") || "";
-            if (!reason.trim()) return;
-        } else if (actionButton.dataset.action === "confirm"
-                   && !window.confirm("Xác nhận booking này?")) {
-            return;
-        } else if (actionButton.dataset.action === "complete"
-                   && !window.confirm("Đánh dấu buổi tập đã hoàn thành?")) {
-            return;
-        }
+        const actions = {
+            confirm: {
+                heading: "Xác nhận lịch tập?",
+                detail: "Lịch sẽ chuyển sang Đã xác nhận và hội viên sẽ được thông báo.",
+                action: "Xác nhận"
+            },
+            complete: {
+                heading: "Hoàn thành buổi tập?",
+                detail: "Xác nhận rằng buổi tập với hội viên đã kết thúc.",
+                action: "Đánh dấu hoàn thành"
+            },
+            reject: {
+                heading: "Từ chối lịch tập?",
+                detail: "Hội viên sẽ thấy lý do từ chối.",
+                action: "Từ chối lịch",
+                requireReason: true,
+                danger: true
+            },
+            cancel: {
+                heading: "Hủy lịch đã xác nhận?",
+                detail: "Hội viên sẽ thấy lý do hủy và khung giờ sẽ được mở lại.",
+                action: "Hủy lịch",
+                requireReason: true,
+                danger: true
+            }
+        };
+        const confirmation = actions[actionButton.dataset.action];
+        if (!confirmation) return;
+        const reason = await confirmBookingAction(confirmation);
+        if (reason === null) return;
 
         try {
             await requestJson("trainer-action.php", {

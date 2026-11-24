@@ -176,6 +176,7 @@
     font-weight: 700;
 }
 
+.booking-status-awaitingpayment,
 .booking-status-pending {
     background: #fef3c7;
     color: #92400e;
@@ -188,6 +189,7 @@
 }
 
 .booking-status-rejected,
+.booking-status-expired,
 .booking-status-cancelled {
     background: #fee2e2;
     color: #991b1b;
@@ -307,6 +309,15 @@
 
 .booking-dialog-actions .booking-submit-button {
     width: auto;
+}
+
+.booking-dialog-actions .booking-dialog-danger {
+    background: #b91c1c;
+    color: #fff;
+}
+
+.booking-dialog-actions .booking-dialog-danger:hover {
+    background: #991b1b;
 }
 
 .booking-dialog-secondary {

@@ -58,6 +58,15 @@ $csrfToken = getCsrfToken();
                         </div>
 
                         <div class="mb-3">
+                            <label for="bookingDuration" class="form-label">Thời lượng (phút)</label>
+                            <select class="form-select" id="bookingDuration">
+                                <?php for ($minutes = 30; $minutes <= 180; $minutes += 15): ?>
+                                    <option value="<?= $minutes ?>" <?= $minutes === 60 ? 'selected' : '' ?>><?= $minutes ?></option>
+                                <?php endfor; ?>
+                            </select>
+                        </div>
+
+                        <div class="mb-3">
                             <label for="timeSlot" class="form-label">Khung giờ</label>
                             <select class="form-select" id="timeSlot" name="time_slot" required>
                                 <option value="">-- Chọn khung giờ --</option>
@@ -110,6 +119,7 @@ $csrfToken = getCsrfToken();
                     <select id="bookingFilter" class="form-select" aria-controls="myBookings">
                         <option value="all">Tất cả</option>
                         <option value="change">Yêu cầu đổi lịch</option>
+                        <option value="awaitingpayment">Chờ thanh toán</option>
                         <option value="pending">Chờ xác nhận</option>
                         <option value="confirmed">Đã xác nhận</option>
                         <option value="completed">Đã hoàn thành</option>
@@ -170,7 +180,10 @@ $csrfToken = getCsrfToken();
 </div>
 
 <div class="sidebar-overlay" id="sidebarOverlay"></div>
+<?php include __DIR__ . '/../../layouts/booking-confirmation.php'; ?>
 <script src="../../assets/js/dashboard.js"></script>
+<script src="../../assets/js/booking-confirmation.js"></script>
+<script src="../../assets/js/booking-history.js"></script>
 <script>
 document.addEventListener("DOMContentLoaded", function () {
     const dateInput = document.getElementById("bookingDate");
@@ -184,9 +197,13 @@ document.addEventListener("DOMContentLoaded", function () {
     const changeTrainerSelect = document.getElementById("changeTrainer");
     const changeDateInput = document.getElementById("changeDate");
     const changeSlotSelect = document.getElementById("changeSlot");
+    const durationSelect = document.getElementById("bookingDuration");
+    let changeDuration = 60;
     const csrfToken = document.getElementById("bookingCsrfToken").value;
     const apiBase = "../../../backend/api/booking/";
     const statusLabels = {
+        awaitingpayment: "Chờ thanh toán",
+        expired: "Hết hạn giữ chỗ",
         pending: "Chờ xác nhận",
         confirmed: "Đã xác nhận",
         rejected: "Đã từ chối",
@@ -277,15 +294,35 @@ document.addEventListener("DOMContentLoaded", function () {
             work_date: workDate
         });
         const data = await requestJson(apiBase + "availability.php?" + params.toString());
-        data.slots.forEach(function (slot) {
-            const option = document.createElement("option");
-            option.value = slot.schedule_id;
-            option.textContent =
-                slot.start_time.slice(0, 5) + " - " + slot.end_time.slice(0, 5);
-            select.appendChild(option);
-        });
+        const isChange = select === changeSlotSelect;
+        const duration = isChange ? changeDuration : Number(durationSelect.value);
+        const minutes = (time) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
+        const hhmm = (time) => String(Math.floor(time / 60)).padStart(2, "0") + ":" +
+            String(time % 60).padStart(2, "0");
 
-        if (data.slots.length === 0) {
+        if (select !== changeSlotSelect && (trainerSelect.value !== trainerId || dateInput.value !== workDate)) return;
+        if (isChange && (changeTrainerSelect.value !== trainerId || changeDateInput.value !== workDate)) return;
+        select.replaceChildren(defaultOption);
+        for (const slot of data.slots) {
+            for (let from = minutes(slot.start_time); from + duration <= minutes(slot.end_time); from += 15) {
+                const start = hhmm(from);
+                const end = hhmm(from + duration);
+                if (Date.parse(workDate + "T" + start + ":00+07:00") < Date.now() + 86400000) continue;
+                const option = document.createElement("option");
+                option.value = slot.schedule_id + "|" + start;
+                option.dataset.scheduleId = slot.schedule_id;
+                option.dataset.startAt = workDate + "T" + start;
+                option.dataset.endAt = workDate + "T" + end;
+                option.textContent = start + " - " + end;
+                if (!isChange) {
+                    option.textContent += " · " + (Number(slot.hourly_rate) * duration / 60)
+                        .toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + " ₫";
+                }
+                select.appendChild(option);
+            }
+        }
+
+        if (select.options.length === 1) {
             defaultOption.textContent = "Ngày này không còn khung giờ trống";
         }
     }
@@ -335,6 +372,17 @@ document.addEventListener("DOMContentLoaded", function () {
                 ? '<button type="button" class="booking-cancel-button" data-cancel-id="' +
                     escapeHtml(booking.booking_id) + '">Hủy lịch</button>'
                 : "";
+            const paymentButton = booking.status === "awaitingpayment"
+                ? '<button type="button" class="booking-management-button" data-pay-id="' +
+                    escapeHtml(booking.booking_id) + '">Thanh toán demo</button>'
+                : "";
+            const paymentDetails = booking.status === "awaitingpayment"
+                ? '<p class="booking-change-pending">Phí: ' +
+                    escapeHtml(Number(booking.fee_snapshot).toLocaleString("vi-VN")) + ' ₫ · Giữ đến ' +
+                    escapeHtml(new Date(booking.hold_expires_at.replace(" ", "T") + "Z")
+                        .toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Ho_Chi_Minh" })) +
+                    '</p>'
+                : "";
             const changeRequest = booking.pending_change_request_id
                 ? '<p class="booking-change-pending">Đang chờ PT duyệt đổi lịch: ' +
                     escapeHtml(booking.pending_change_request_reason) +
@@ -348,7 +396,8 @@ document.addEventListener("DOMContentLoaded", function () {
                 ? '<button type="button" class="booking-change-button" data-change-id="' +
                     escapeHtml(booking.booking_id) + '" data-trainer-id="' +
                     escapeHtml(booking.trainer_id) + '" data-work-date="' +
-                    escapeHtml(booking.work_date) + '">Đổi lịch</button>'
+                    escapeHtml(booking.work_date) + '" data-duration="' +
+                    escapeHtml(booking.duration_minutes) + '">Đổi lịch</button>'
                 : "";
 
             return '<article class="booking-list-item">' +
@@ -364,9 +413,9 @@ document.addEventListener("DOMContentLoaded", function () {
                         escapeHtml(formatDate(booking.work_date)) + " · " +
                         escapeHtml(booking.start_time.slice(0, 5)) + " - " +
                         escapeHtml(booking.end_time.slice(0, 5)) +
-                    "</p>" + note + cancellation +
+                    "</p>" + note + cancellation + paymentDetails + renderChangeHistory(booking.change_history) +
                 "</div><div class=\"booking-actions\">" +
-                    changeRequest + changeButton + cancelButton +
+                    paymentButton + changeRequest + changeButton + cancelButton +
                 "</div>" +
             "</article>";
         }).join("");
@@ -391,6 +440,7 @@ document.addEventListener("DOMContentLoaded", function () {
     dateInput.min = localDate;
     trainerSelect.addEventListener("change", refreshAvailability);
     dateInput.addEventListener("change", refreshAvailability);
+    durationSelect.addEventListener("change", refreshAvailability);
 
     form.addEventListener("submit", async function (event) {
         event.preventDefault();
@@ -401,6 +451,7 @@ document.addEventListener("DOMContentLoaded", function () {
         }
 
         const submitButton = form.querySelector('button[type="submit"]');
+        const slot = timeSlotSelect.selectedOptions[0];
         submitButton.disabled = true;
 
         try {
@@ -411,7 +462,9 @@ document.addEventListener("DOMContentLoaded", function () {
                     "X-CSRF-Token": csrfToken
                 },
                 body: JSON.stringify({
-                    schedule_id: timeSlotSelect.value,
+                    schedule_id: slot.dataset.scheduleId,
+                    startAt: slot.dataset.startAt,
+                    endAt: slot.dataset.endAt,
                     note: document.getElementById("note").value
                 })
             });
@@ -419,7 +472,7 @@ document.addEventListener("DOMContentLoaded", function () {
             document.getElementById("note").value = "";
             try {
                 await Promise.all([loadBookings(), loadSlots()]);
-                showFeedback("Đã gửi yêu cầu đặt lịch. Vui lòng chờ xác nhận.");
+                showFeedback("Đã giữ chỗ trong 15 phút. Chọn Thanh toán demo trong Lịch tập của tôi.");
             } catch (refreshError) {
                 showFeedback(
                     "Đã lưu yêu cầu đặt lịch nhưng không thể tải lại danh sách: " +
@@ -436,8 +489,26 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 
     bookingList.addEventListener("click", async function (event) {
+        const payButton = event.target.closest("[data-pay-id]");
+        if (payButton) {
+            payButton.disabled = true;
+            try {
+                await requestJson(apiBase + "pay-demo.php", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+                    body: JSON.stringify({ booking_id: payButton.dataset.payId })
+                });
+                await loadBookings();
+                showFeedback("Đã thanh toán demo. Lịch đang chờ PT xác nhận.");
+            } catch (error) {
+                payButton.disabled = false;
+                showFeedback(error.message, true);
+            }
+            return;
+        }
         const changeButton = event.target.closest("[data-change-id]");
         if (changeButton) {
+            changeDuration = Number(changeButton.dataset.duration);
             document.getElementById("changeBookingId").value = changeButton.dataset.changeId;
             changeTrainerSelect.value = changeButton.dataset.trainerId;
             document.getElementById("currentBookingSlot").textContent =
@@ -484,9 +555,14 @@ document.addEventListener("DOMContentLoaded", function () {
 
         const cancelButton = event.target.closest("[data-cancel-id]");
 
-        if (!cancelButton || !window.confirm("Bạn có chắc muốn hủy lịch tập này?")) {
-            return;
-        }
+        if (!cancelButton) return;
+        const confirmation = await confirmBookingAction({
+            heading: "Hủy lịch tập?",
+            detail: "Khung giờ sẽ được mở lại cho hội viên khác sau khi hủy.",
+            action: "Hủy lịch",
+            danger: true
+        });
+        if (confirmation === null) return;
 
         cancelButton.disabled = true;
         try {
@@ -536,6 +612,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (!changeForm.reportValidity()) return;
 
         const submitButton = changeForm.querySelector('button[type="submit"]');
+        const slot = changeSlotSelect.selectedOptions[0];
         submitButton.disabled = true;
         try {
             await requestJson(apiBase + "change-requests.php", {
@@ -546,7 +623,9 @@ document.addEventListener("DOMContentLoaded", function () {
                 },
                 body: JSON.stringify({
                     booking_id: document.getElementById("changeBookingId").value,
-                    schedule_id: changeSlotSelect.value,
+                    schedule_id: slot.dataset.scheduleId,
+                    newStartAt: slot.dataset.startAt,
+                    newEndAt: slot.dataset.endAt,
                     reason: document.getElementById("changeReason").value
                 })
             });

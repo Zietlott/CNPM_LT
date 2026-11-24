@@ -19,7 +19,7 @@ class BookingController
 
     public function getAvailableSlots(int $trainerId, string $workDate): array
     {
-        return $this->service->getAvailableSlots($trainerId, $workDate);
+        return $this->service->getAvailableSlots($trainerId, $workDate, $this->requireMemberId());
     }
 
     public function getMyBookings(): array
@@ -27,12 +27,14 @@ class BookingController
         return $this->service->getMemberBookings($this->requireMemberId());
     }
 
-    public function createMyBooking(int $scheduleId, string $note = ''): int
+    public function createMyBooking(int $scheduleId, string $note, string $startAt, string $endAt): int
     {
         return $this->service->createBooking(
             $this->requireMemberId(),
             $scheduleId,
-            $note
+            $note,
+            $startAt,
+            $endAt
         );
     }
 
@@ -48,13 +50,17 @@ class BookingController
     public function createMyChangeRequest(
         int $bookingId,
         int $scheduleId,
-        string $reason
+        string $reason,
+        string $startAt,
+        string $endAt
     ): int {
         return $this->service->createChangeRequest(
             $this->requireRole('member'),
             $bookingId,
             $scheduleId,
-            $reason
+            $reason,
+            $startAt,
+            $endAt
         );
     }
 
@@ -131,8 +137,8 @@ class BookingController
         int $requestId,
         bool $approve,
         string $reason = ''
-    ): void {
-        $this->service->reviewChangeRequest(
+    ): bool {
+        return $this->service->reviewChangeRequest(
             $this->requireRole('trainer'),
             $bookingId,
             $requestId,

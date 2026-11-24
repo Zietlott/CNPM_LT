@@ -33,85 +33,103 @@ class BookingService
 
     public function getAvailableTrainers(): array
     {
-        $sql = "SELECT DISTINCT t.trainer_id, t.full_name, t.specialty
-                FROM personal_trainer t
-                INNER JOIN trainer_schedule s
-                    ON s.trainer_id = t.trainer_id
-                WHERE t.is_active = 1
-                  AND s.status = 'available'
-                  AND TIMESTAMP(s.work_date, s.start_time) > (UTC_TIMESTAMP() + INTERVAL 7 HOUR)
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM booking b
-                      INNER JOIN trainer_schedule occupied
-                          ON occupied.schedule_id = b.schedule_id
-                      WHERE b.status IN ('pending', 'confirmed')
-                        AND occupied.trainer_id = s.trainer_id
-                        AND occupied.work_date = s.work_date
-                        AND occupied.start_time < s.end_time
-                        AND occupied.end_time > s.start_time
-                  )
-                ORDER BY t.full_name";
-
-        return $this->db->query($sql)->fetchAll();
+        return $this->db->query(
+            "SELECT DISTINCT t.trainer_id, t.full_name, t.specialty
+             FROM personal_trainer t
+             JOIN schedules s ON s.pt_id = t.trainer_id
+             WHERE t.is_active = 1 AND s.status = 'Open'
+               AND s.end_at >= UTC_TIMESTAMP() + INTERVAL 1470 MINUTE
+             ORDER BY t.full_name"
+        )->fetchAll();
     }
 
-    public function getAvailableSlots(int $trainerId, string $workDate): array
+    public function getAvailableSlots(int $trainerId, string $workDate, ?int $memberId = null): array
     {
+        $this->expireHolds();
         if ($trainerId <= 0 || !$this->isValidDate($workDate)) {
-            throw new BookingException(
-                'Huấn luyện viên hoặc ngày tập không hợp lệ.',
-                'INVALID_BOOKING_DATA',
-                422
-            );
+            throw $this->invalidBookingData('Huấn luyện viên hoặc ngày tập không hợp lệ.');
         }
+        $windows = $this->db->prepare(
+            "SELECT s.schedule_id, s.work_date, s.start_time, s.end_time, p.hourly_rate
+             FROM trainer_schedule s
+             JOIN personal_trainer t ON t.trainer_id = s.trainer_id
+             JOIN pt_profiles p ON p.user_id = s.trainer_id
+             WHERE s.trainer_id = ? AND s.work_date = ?
+               AND s.status = 'available' AND t.is_active = 1
+             ORDER BY s.start_time"
+        );
+        $windows->execute([$trainerId, $workDate]);
+        $busy = $this->db->prepare(
+            "SELECT TIME(start_at + INTERVAL 7 HOUR) AS start_time,
+                    TIME(end_at + INTERVAL 7 HOUR) AS end_time
+             FROM bookings
+             WHERE (pt_id = ? OR member_id = ?) AND status IN ('AwaitingPayment', 'Pending', 'Confirmed')
+               AND DATE(start_at + INTERVAL 7 HOUR) = ?
+             ORDER BY start_at"
+        );
+        $busy->execute([$trainerId, $memberId, $workDate]);
+        $occupied = $busy->fetchAll();
+        $day = new DateTimeImmutable($workDate, new DateTimeZone('Asia/Ho_Chi_Minh'));
+        $lead = time() + self::MEMBER_CANCELLATION_LIMIT_HOURS * 3600 - $day->getTimestamp();
+        $firstStart = max(0, (int) ceil($lead / 900) * 900);
 
-        $sql = "SELECT s.schedule_id, s.work_date, s.start_time, s.end_time
-                FROM trainer_schedule s
-                INNER JOIN personal_trainer t
-                    ON t.trainer_id = s.trainer_id
-                WHERE s.trainer_id = :trainer_id
-                  AND s.work_date = :work_date
-                  AND s.work_date >= CURRENT_DATE
-                  AND TIMESTAMP(s.work_date, s.start_time) > (UTC_TIMESTAMP() + INTERVAL 7 HOUR)
-                  AND s.status = 'available'
-                  AND t.is_active = 1
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM booking b
-                      INNER JOIN trainer_schedule occupied
-                          ON occupied.schedule_id = b.schedule_id
-                      WHERE b.status IN ('pending', 'confirmed')
-                        AND occupied.trainer_id = s.trainer_id
-                        AND occupied.work_date = s.work_date
-                        AND occupied.start_time < s.end_time
-                        AND occupied.end_time > s.start_time
-                  )
-                ORDER BY s.start_time";
+        $slots = [];
+        foreach ($windows->fetchAll() as $window) {
+            $start = max($firstStart, (int) ceil($this->timeOfDaySeconds($window['start_time']) / 900) * 900);
+            $end = intdiv($this->timeOfDaySeconds($window['end_time']), 900) * 900;
+            foreach ($occupied as $booking) {
+                $busyStart = $this->timeOfDaySeconds($booking['start_time']);
+                $busyEnd = $this->timeOfDaySeconds($booking['end_time']);
+                if ($busyEnd <= $start) {
+                    continue;
+                }
+                if ($busyStart >= $end) {
+                    break;
+                }
+                $this->appendAvailableRange($slots, $window, $start, intdiv($busyStart, 900) * 900);
+                $start = (int) ceil($busyEnd / 900) * 900;
+            }
+            $this->appendAvailableRange($slots, $window, $start, $end);
+        }
+        return $slots;
+    }
 
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([
-            'trainer_id' => $trainerId,
-            'work_date' => $workDate
-        ]);
+    private function timeOfDaySeconds(string $time): int
+    {
+        [$hour, $minute, $second] = array_map('intval', explode(':', $time));
+        return $hour * 3600 + $minute * 60 + $second;
+    }
 
-        return $stmt->fetchAll();
+    private function appendAvailableRange(array &$slots, array $schedule, int $start, int $end): void
+    {
+        $duration = ($end - $start) / 60;
+        if ($duration < self::MIN_BOOKING_DURATION_MINUTES) {
+            return;
+        }
+        $schedule['start_time'] = gmdate('H:i:s', $start);
+        $schedule['end_time'] = gmdate('H:i:s', $end);
+        $schedule['quoted_fee'] = round((float) $schedule['hourly_rate'] * $duration / 60, 2);
+        $slots[] = $schedule;
     }
 
     public function getMemberBookings(int $memberId): array
     {
+        $this->expireHolds();
         $sql = "SELECT
                     b.booking_id,
                     b.status,
                     b.note,
                     b.cancel_reason,
                     b.created_at,
+                    stored.fee_snapshot,
+                    stored.duration_minutes,
+                    stored.hold_expires_at,
                     t.trainer_id,
                     t.full_name AS trainer_name,
                     t.specialty,
-                    s.work_date,
-                    s.start_time,
-                    s.end_time,
+                    DATE(stored.start_at + INTERVAL 7 HOUR) AS work_date,
+                    TIME(stored.start_at + INTERVAL 7 HOUR) AS start_time,
+                    TIME(stored.end_at + INTERVAL 7 HOUR) AS end_time,
                     cr.request_id AS pending_change_request_id,
                     cr.reason AS pending_change_request_reason,
                     CASE
@@ -119,22 +137,24 @@ class BookingService
                          AND TIMESTAMPDIFF(
                              SECOND,
                              (UTC_TIMESTAMP() + INTERVAL 7 HOUR),
-                             TIMESTAMP(s.work_date, s.start_time)
-                         ) > 0
+                             TIMESTAMP(DATE(stored.start_at + INTERVAL 7 HOUR), TIME(stored.start_at + INTERVAL 7 HOUR))
+                         ) >= :change_seconds
                         THEN 1
                         ELSE 0
                     END AS can_request_change,
                     CASE
+                        WHEN b.status = 'awaitingpayment' THEN 1
                         WHEN b.status IN ('pending', 'confirmed')
                          AND TIMESTAMPDIFF(
                              SECOND,
                              (UTC_TIMESTAMP() + INTERVAL 7 HOUR),
-                             TIMESTAMP(s.work_date, s.start_time)
+                             TIMESTAMP(DATE(stored.start_at + INTERVAL 7 HOUR), TIME(stored.start_at + INTERVAL 7 HOUR))
                          ) >= :cancellation_seconds
                         THEN 1
                         ELSE 0
                     END AS can_cancel
                 FROM booking b
+                INNER JOIN bookings stored ON stored.id = b.booking_id
                 INNER JOIN trainer_schedule s
                     ON s.schedule_id = b.schedule_id
                 INNER JOIN personal_trainer t
@@ -144,18 +164,19 @@ class BookingService
                    AND cr.status = 'pending'
                 WHERE b.member_id = :member_id
                 ORDER BY
-                    (s.work_date >= CURRENT_DATE) DESC,
-                    s.work_date ASC,
-                    s.start_time ASC,
+                    (DATE(stored.start_at + INTERVAL 7 HOUR) >= CURRENT_DATE) DESC,
+                    DATE(stored.start_at + INTERVAL 7 HOUR) ASC,
+                    TIME(stored.start_at + INTERVAL 7 HOUR) ASC,
                     b.booking_id DESC";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute([
+            'change_seconds' => self::MEMBER_CANCELLATION_LIMIT_HOURS * 3600,
             'cancellation_seconds' => self::MEMBER_CANCELLATION_LIMIT_HOURS * 3600,
             'member_id' => $memberId
         ]);
 
-        return $stmt->fetchAll();
+        return $this->attachChangeHistory($stmt->fetchAll(), 'member_id', $memberId);
     }
 
     public function getTrainerBookings(int $memberId): array
@@ -172,40 +193,72 @@ class BookingService
                 b.cancel_reason,
                 b.created_at,
                 s.schedule_id,
-                s.work_date,
-                s.start_time,
-                s.end_time,
+                DATE(stored.start_at + INTERVAL 7 HOUR) AS work_date,
+                TIME(stored.start_at + INTERVAL 7 HOUR) AS start_time,
+                TIME(stored.end_at + INTERVAL 7 HOUR) AS end_time,
+                (b.status = 'confirmed' AND stored.end_at <= UTC_TIMESTAMP()) AS can_complete,
+                (b.status = 'confirmed' AND stored.start_at > UTC_TIMESTAMP()) AS can_cancel,
                 cr.request_id AS pending_change_request_id,
                 cr.reason AS change_request_reason,
                 cr.requested_schedule_id,
-                requested.work_date AS requested_work_date,
-                requested.start_time AS requested_start_time,
-                requested.end_time AS requested_end_time
+                DATE(proposed.new_start_at + INTERVAL 7 HOUR) AS requested_work_date,
+                TIME(proposed.new_start_at + INTERVAL 7 HOUR) AS requested_start_time,
+                TIME(proposed.new_end_at + INTERVAL 7 HOUR) AS requested_end_time
              FROM booking b
+             INNER JOIN bookings stored ON stored.id = b.booking_id
              INNER JOIN member m ON m.member_id = b.member_id
              INNER JOIN trainer_schedule s ON s.schedule_id = b.schedule_id
              LEFT JOIN booking_change_request cr
                 ON cr.booking_id = b.booking_id
                AND cr.status = 'pending'
-             LEFT JOIN trainer_schedule requested
-                ON requested.schedule_id = cr.requested_schedule_id
+             LEFT JOIN booking_change_requests proposed ON proposed.id = cr.request_id
              WHERE s.trainer_id = :trainer_id
+               AND b.status NOT IN ('awaitingpayment', 'expired')
              ORDER BY
-                (s.work_date >= CURRENT_DATE) DESC,
-                s.work_date ASC,
-                s.start_time ASC,
+                (DATE(stored.start_at + INTERVAL 7 HOUR) >= CURRENT_DATE) DESC,
+                DATE(stored.start_at + INTERVAL 7 HOUR) ASC,
+                TIME(stored.start_at + INTERVAL 7 HOUR) ASC,
                 b.booking_id DESC"
         );
         $stmt->execute(['trainer_id' => $trainerId]);
 
-        return $stmt->fetchAll();
+        return $this->attachChangeHistory($stmt->fetchAll(), 'pt_id', $trainerId);
+    }
+
+    private function attachChangeHistory(array $bookings, string $ownerColumn, int $ownerId): array
+    {
+        if ($bookings === []) {
+            return [];
+        }
+        $ownerColumn = $ownerColumn === 'pt_id' ? 'pt_id' : 'member_id';
+        $query = $this->db->prepare(
+            "SELECT r.booking_id, r.id AS request_id, LOWER(r.status) AS status, r.reason,
+                    r.reject_reason AS decision_reason,
+                    DATE(r.new_start_at + INTERVAL 7 HOUR) AS work_date,
+                    TIME(r.new_start_at + INTERVAL 7 HOUR) AS start_time,
+                    TIME(r.new_end_at + INTERVAL 7 HOUR) AS end_time
+             FROM booking_change_requests r
+             JOIN bookings b ON b.id = r.booking_id
+             WHERE b.$ownerColumn = ? AND r.status <> 'Pending'
+             ORDER BY r.id DESC"
+        );
+        $query->execute([$ownerId]);
+        $history = [];
+        foreach ($query->fetchAll() as $request) {
+            $history[$request['booking_id']][] = $request;
+        }
+        foreach ($bookings as &$booking) {
+            $booking['change_history'] = $history[$booking['booking_id']] ?? [];
+        }
+        unset($booking);
+        return $bookings;
     }
 
     public function getAdminBookings(?string $status = null): array
     {
         if (
             $status !== null
-            && !in_array($status, ['pending', 'confirmed', 'rejected', 'cancelled', 'completed'], true)
+            && !in_array($status, ['awaitingpayment', 'pending', 'confirmed', 'rejected', 'cancelled', 'completed', 'expired'], true)
         ) {
             throw new BookingException(
                 'Trạng thái booking không hợp lệ.',
@@ -226,32 +279,32 @@ class BookingService
                     t.trainer_id,
                     t.full_name AS trainer_name,
                     s.schedule_id,
-                    s.work_date,
-                    s.start_time,
-                    s.end_time,
+                    DATE(stored.start_at + INTERVAL 7 HOUR) AS work_date,
+                    TIME(stored.start_at + INTERVAL 7 HOUR) AS start_time,
+                    TIME(stored.end_at + INTERVAL 7 HOUR) AS end_time,
                     cr.request_id AS pending_change_request_id,
                     cr.reason AS change_request_reason,
-                    requested.work_date AS requested_work_date,
-                    requested.start_time AS requested_start_time,
-                    requested.end_time AS requested_end_time
+                    DATE(proposed.new_start_at + INTERVAL 7 HOUR) AS requested_work_date,
+                    TIME(proposed.new_start_at + INTERVAL 7 HOUR) AS requested_start_time,
+                    TIME(proposed.new_end_at + INTERVAL 7 HOUR) AS requested_end_time
                 FROM booking b
+                INNER JOIN bookings stored ON stored.id = b.booking_id
                 INNER JOIN member m ON m.member_id = b.member_id
                 INNER JOIN trainer_schedule s ON s.schedule_id = b.schedule_id
                 INNER JOIN personal_trainer t ON t.trainer_id = s.trainer_id
                 LEFT JOIN booking_change_request cr
                     ON cr.booking_id = b.booking_id
                    AND cr.status = 'pending'
-                LEFT JOIN trainer_schedule requested
-                    ON requested.schedule_id = cr.requested_schedule_id";
+                LEFT JOIN booking_change_requests proposed ON proposed.id = cr.request_id";
 
         if ($status !== null) {
             $sql .= ' WHERE b.status = :status';
         }
 
         $sql .= ' ORDER BY
-                    (s.work_date >= CURRENT_DATE) DESC,
-                    s.work_date ASC,
-                    s.start_time ASC,
+                    (DATE(stored.start_at + INTERVAL 7 HOUR) >= CURRENT_DATE) DESC,
+                    DATE(stored.start_at + INTERVAL 7 HOUR) ASC,
+                    TIME(stored.start_at + INTERVAL 7 HOUR) ASC,
                     b.booking_id DESC';
 
         $stmt = $this->db->prepare($sql);
@@ -274,9 +327,9 @@ class BookingService
                 t.trainer_id,
                 t.full_name AS trainer_name,
                 s.schedule_id,
-                s.work_date,
-                s.start_time,
-                s.end_time,
+                DATE(stored.start_at + INTERVAL 7 HOUR) AS work_date,
+                TIME(stored.start_at + INTERVAL 7 HOUR) AS start_time,
+                TIME(stored.end_at + INTERVAL 7 HOUR) AS end_time,
                 p.can_confirm,
                 p.can_cancel
              FROM booking_staff_permission p
@@ -285,6 +338,7 @@ class BookingService
                AND staff.role = 'staff'
                AND staff.status = 'active'
              CROSS JOIN booking b
+             INNER JOIN bookings stored ON stored.id = b.booking_id
              INNER JOIN member m ON m.member_id = b.member_id
              INNER JOIN trainer_schedule s ON s.schedule_id = b.schedule_id
              INNER JOIN personal_trainer t ON t.trainer_id = s.trainer_id
@@ -294,9 +348,9 @@ class BookingService
                     OR (p.can_cancel = 1 AND b.status IN ('pending', 'confirmed'))
                )
              ORDER BY
-                (s.work_date >= CURRENT_DATE) DESC,
-                s.work_date ASC,
-                s.start_time ASC,
+                (DATE(stored.start_at + INTERVAL 7 HOUR) >= CURRENT_DATE) DESC,
+                DATE(stored.start_at + INTERVAL 7 HOUR) ASC,
+                TIME(stored.start_at + INTERVAL 7 HOUR) ASC,
                 b.booking_id DESC"
         );
         $stmt->execute(['member_id' => $memberId]);
@@ -353,8 +407,11 @@ class BookingService
     public function createBooking(
         int $memberId,
         int $scheduleId,
-        string $note = ''
+        string $note = '',
+        ?string $startAt = null,
+        ?string $endAt = null
     ): int {
+        $this->expireHolds();
         if ($memberId <= 0 || $scheduleId <= 0 || $this->textLength($note) > 500) {
             throw new BookingException(
                 'Thông tin đặt lịch không hợp lệ.',
@@ -423,7 +480,6 @@ class BookingService
                  WHERE schedule_id = :schedule_id
                    AND trainer_id = :trainer_id
                    AND status = 'available'
-                   AND TIMESTAMP(work_date, start_time) > (UTC_TIMESTAMP() + INTERVAL 7 HOUR)
                  FOR UPDATE"
             );
             $scheduleStmt->execute([
@@ -440,20 +496,7 @@ class BookingService
                 );
             }
 
-            $start = strtotime('1970-01-01 ' . $schedule['start_time']);
-            $end = strtotime('1970-01-01 ' . $schedule['end_time']);
-            $durationMinutes = (int) (($end - $start) / 60);
-
-            if (
-                $durationMinutes < self::MIN_BOOKING_DURATION_MINUTES
-                || $durationMinutes > self::MAX_BOOKING_DURATION_MINUTES
-            ) {
-                throw new BookingException(
-                    'Thời lượng buổi tập phải từ 30 đến 180 phút.',
-                    'INVALID_BOOKING_DURATION',
-                    422
-                );
-            }
+            $schedule = $this->selectBookingTime($schedule, $startAt, $endAt);
 
             $membershipStmt = $this->db->prepare(
                 "SELECT membership_id
@@ -461,7 +504,7 @@ class BookingService
                  WHERE member_id = :member_id
                    AND status = 'active'
                    AND start_date <= :start_date
-                   AND end_date >= :end_date
+                   AND end_date > :end_date
                  ORDER BY end_date DESC, membership_id DESC
                  LIMIT 1
                  FOR UPDATE"
@@ -481,55 +524,30 @@ class BookingService
                 );
             }
 
-            $conflictStmt = $this->db->prepare(
-                "SELECT b.booking_id
-                 FROM booking b
-                 INNER JOIN trainer_schedule occupied
-                    ON occupied.schedule_id = b.schedule_id
-                 WHERE b.status IN ('pending', 'confirmed')
-                   AND occupied.work_date = :work_date
-                   AND occupied.start_time < :end_time
-                   AND occupied.end_time > :start_time
-                   AND (
-                       occupied.trainer_id = :trainer_id
-                       OR b.member_id = :member_id
-                   )
-                 LIMIT 1
-                 FOR UPDATE"
-            );
-            $conflictStmt->execute([
-                'work_date' => $schedule['work_date'],
-                'end_time' => $schedule['end_time'],
-                'start_time' => $schedule['start_time'],
-                'trainer_id' => $trainerId,
-                'member_id' => $memberId
-            ]);
-
-            if ($conflictStmt->fetch()) {
-                throw new BookingException(
-                    'Khung giờ vừa được đặt. Vui lòng chọn giờ khác.',
-                    'BOOKING_SLOT_UNAVAILABLE',
-                    409
-                );
-            }
-
+            $this->assertNoActiveBookingConflict($memberId, (int) $trainerId, $schedule);
+            $this->assertBookingLimit($memberId);
             $insertStmt = $this->db->prepare(
                 "INSERT INTO bookings
                     (member_id, schedule_id, membership_id, note, status, pt_id,
-                     start_at, end_at, duration_minutes, fee_snapshot)
-                 SELECT :member_id, s.id, :membership_id, :note, 'Pending', s.pt_id,
-                        s.start_at, s.end_at, TIMESTAMPDIFF(MINUTE, s.start_at, s.end_at),
-                        ROUND(COALESCE(p.hourly_rate, 0) * TIMESTAMPDIFF(MINUTE, s.start_at, s.end_at) / 60, 2)
+                     start_at, end_at, duration_minutes, fee_snapshot, hold_expires_at)
+                 SELECT :member_id, s.id, :membership_id, :note, 'AwaitingPayment', s.pt_id,
+                        slot.start_at, slot.end_at, TIMESTAMPDIFF(MINUTE, slot.start_at, slot.end_at),
+                        ROUND(COALESCE(p.hourly_rate, 0) * TIMESTAMPDIFF(MINUTE, slot.start_at, slot.end_at) / 60, 2),
+                        UTC_TIMESTAMP() + INTERVAL 15 MINUTE
                  FROM schedules s JOIN pt_profiles p ON p.user_id = s.pt_id
+                 CROSS JOIN (SELECT :start_at AS start_at, :end_at AS end_at) slot
                  WHERE s.id = :schedule_id"
             );
             $insertStmt->execute([
                 'member_id' => $memberId,
                 'schedule_id' => $scheduleId,
                 'membership_id' => $membershipId,
+                'start_at' => $schedule['start_at'],
+                'end_at' => $schedule['end_at'],
                 'note' => $note !== '' ? $note : null
             ]);
             $bookingId = (int) $this->db->lastInsertId();
+            $this->createPendingPayment($bookingId);
             $this->recordBookingAudit(
                 $bookingId,
                 $memberId,
@@ -539,7 +557,7 @@ class BookingService
                 [
                     'schedule_id' => $scheduleId,
                     'membership_id' => (int) $membershipId,
-                    'status' => 'pending'
+                    'status' => 'awaitingpayment'
                 ]
             );
             $this->db->commit();
@@ -565,33 +583,189 @@ class BookingService
             throw $e;
         }
 
-        $this->createNotification(
-            $memberId,
-            $bookingId,
-            'Đã gửi yêu cầu đặt lịch',
-            sprintf(
-                'Yêu cầu tập với huấn luyện viên %s lúc %s ngày %s đang chờ xác nhận.',
-                $this->getTrainerName((int) $trainerId),
-                substr($schedule['start_time'], 0, 5),
-                date('d/m/Y', strtotime($schedule['work_date']))
-            )
-        );
+        return $bookingId;
+    }
 
-        $trainerAccountId = $this->getTrainerAccountId((int) $trainerId);
-        if ($trainerAccountId !== null) {
-            $this->createNotification(
-                $trainerAccountId,
-                $bookingId,
-                'Booking mới cần xác nhận',
-                sprintf(
-                    'Hội viên gửi yêu cầu tập lúc %s ngày %s.',
-                    substr($schedule['start_time'], 0, 5),
-                    date('d/m/Y', strtotime($schedule['work_date']))
-                )
+    public function expireHolds(): int
+    {
+        return $this->db->exec(
+            "UPDATE bookings b LEFT JOIN payments p ON p.booking_id = b.id AND p.status = 'Pending'
+             SET b.status = 'Expired', p.status = 'Failed'
+             WHERE b.status = 'AwaitingPayment' AND b.hold_expires_at <= UTC_TIMESTAMP()"
+        );
+    }
+
+    public function cancelInvalidFutureBookings(): int
+    {
+        $this->db->beginTransaction();
+        try {
+            $bookings = $this->db->query(
+                "SELECT b.id, b.member_id, b.pt_id, b.status,
+                        CASE WHEN m.status = 'Disabled' THEN 'Tài khoản hội viên đã ngừng hoạt động.'
+                             WHEN t.status = 'Disabled' THEN 'Tài khoản PT đã ngừng hoạt động.'
+                             WHEN p.approval_status = 'Archived' THEN 'Hồ sơ PT đã lưu trữ.'
+                             ELSE 'Gói hội viên của buổi tập đã bị hủy.'
+                        END AS reason
+                 FROM bookings b
+                 JOIN users m ON m.id = b.member_id
+                 JOIN users t ON t.id = b.pt_id
+                 JOIN pt_profiles p ON p.user_id = t.id
+                 JOIN memberships ms ON ms.id = b.membership_id
+                 WHERE b.start_at > UTC_TIMESTAMP()
+                   AND b.status IN ('AwaitingPayment', 'Pending', 'Confirmed')
+                   AND (m.status = 'Disabled' OR t.status = 'Disabled'
+                        OR p.approval_status = 'Archived' OR ms.status = 'Cancelled')
+                 ORDER BY b.id FOR UPDATE"
+            )->fetchAll();
+            $cancel = $this->db->prepare(
+                "UPDATE bookings SET status = 'Cancelled', cancel_reason = ? WHERE id = ?"
             );
+            $closePayment = $this->db->prepare(
+                "UPDATE payments SET status = 'Failed' WHERE booking_id = ? AND status = 'Pending'"
+            );
+            foreach ($bookings as $booking) {
+                $bookingId = (int) $booking['id'];
+                $reason = $booking['reason'];
+                $cancel->execute([$reason, $bookingId]);
+                $closePayment->execute([$bookingId]);
+                $this->requestBookingRefund($bookingId, $reason);
+                $this->cancelPendingChangeRequests($bookingId);
+                $this->recordBookingAudit(
+                    $bookingId, null, 'system_cancelled', $reason,
+                    ['status' => $booking['status']], ['status' => 'cancelled']
+                );
+            }
+            $this->db->commit();
+        } catch (Throwable $error) {
+            $this->rollBackIfActive();
+            throw $error;
         }
 
-        return $bookingId;
+        foreach ($bookings as $booking) {
+            $this->createNotification(
+                (int) $booking['member_id'], (int) $booking['id'], 'Lịch tập đã bị hủy', $booking['reason']
+            );
+            $this->createNotification(
+                (int) $booking['pt_id'], (int) $booking['id'], 'Lịch tập đã bị hủy', $booking['reason']
+            );
+        }
+        return count($bookings);
+    }
+
+    public function settleDemoPayment(int $memberId, int $bookingId, bool $succeed): bool
+    {
+        $this->expireHolds();
+        $this->db->beginTransaction();
+        try {
+            $query = $this->db->prepare(
+                'SELECT status, pt_id, hold_expires_at > UTC_TIMESTAMP() AS hold_active
+                 FROM bookings WHERE id = ? AND member_id = ? FOR UPDATE'
+            );
+            $query->execute([$bookingId, $memberId]);
+            $booking = $query->fetch();
+            if (!$booking) {
+                throw new BookingException('Không tìm thấy lịch tập của bạn.', 'BOOKING_NOT_FOUND', 404);
+            }
+            if ($booking['status'] !== 'AwaitingPayment' || !(int) $booking['hold_active']) {
+                throw new BookingException('Lịch không còn chờ thanh toán.', 'BOOKING_PAYMENT_UNAVAILABLE', 409);
+            }
+
+            $pending = $this->db->prepare(
+                "SELECT id FROM payments WHERE booking_id = ? AND status = 'Pending' FOR UPDATE"
+            );
+            $pending->execute([$bookingId]);
+            $paymentId = $pending->fetchColumn();
+            if ($paymentId === false) {
+                $paymentId = $this->createPendingPayment($bookingId);
+            }
+            if ($succeed) {
+                $this->db->prepare(
+                    "UPDATE payments SET status = 'Success', transaction_code = ?, paid_at = UTC_TIMESTAMP() WHERE id = ?"
+                )->execute(['BOOKING-DEMO-' . $paymentId, $paymentId]);
+                $change = $this->db->prepare(
+                    "UPDATE bookings SET status = 'Pending' WHERE id = ? AND hold_expires_at > UTC_TIMESTAMP()"
+                );
+                $change->execute([$bookingId]);
+                if ($change->rowCount() !== 1) {
+                    throw new BookingException('Đã hết thời gian giữ chỗ.', 'BOOKING_PAYMENT_UNAVAILABLE', 409);
+                }
+            } else {
+                $this->db->prepare("UPDATE payments SET status = 'Failed' WHERE id = ?")->execute([$paymentId]);
+            }
+            $this->db->commit();
+        } catch (Throwable $error) {
+            $this->rollBackIfActive();
+            throw $error;
+        }
+
+        if ($succeed) {
+            $this->createNotification(
+                (int) $booking['pt_id'], $bookingId,
+                'Booking mới cần xác nhận', 'Hội viên đã thanh toán demo và đang chờ bạn xác nhận.'
+            );
+        }
+        return $succeed;
+    }
+
+    private function createPendingPayment(int $bookingId): int
+    {
+        $statement = $this->db->prepare(
+            'INSERT INTO payments (booking_id, member_id, amount)
+             SELECT id, member_id, fee_snapshot FROM bookings WHERE id = ?'
+        );
+        $statement->execute([$bookingId]);
+        return (int) $this->db->lastInsertId();
+    }
+
+    private function assertBookingLimit(int $memberId): void
+    {
+        $statement = $this->db->prepare(
+            "SELECT id FROM bookings WHERE member_id = ? AND start_at > UTC_TIMESTAMP()
+             AND (status = 'Pending' OR (status = 'AwaitingPayment' AND hold_expires_at > UTC_TIMESTAMP())) FOR UPDATE"
+        );
+        $statement->execute([$memberId]);
+        if (count($statement->fetchAll(PDO::FETCH_COLUMN)) >= 3) {
+            throw new BookingException('Bạn đã có 3 lịch đang chờ xử lý.', 'BOOKING_LIMIT_REACHED', 409);
+        }
+    }
+
+    private function assertSameDuration(array $booking, array $schedule): void
+    {
+        if (strtotime($booking['end_time']) - strtotime($booking['start_time'])
+            !== strtotime($schedule['end_time']) - strtotime($schedule['start_time'])) {
+            throw new BookingException('Lịch mới phải giữ nguyên thời lượng buổi tập.', 'BOOKING_DURATION_MISMATCH', 409);
+        }
+    }
+
+    private function selectBookingTime(array $schedule, ?string $startAt, ?string $endAt): array
+    {
+        $date = $schedule['work_date'];
+        if ($startAt === null && $endAt === null) {
+            $startAt = $date . 'T' . substr($schedule['start_time'], 0, 5);
+            $endAt = $date . 'T' . substr($schedule['end_time'], 0, 5);
+        }
+        $pattern = '/^' . preg_quote($date, '/') . 'T((?:[01]\d|2[0-3]):[0-5]\d)$/D';
+        if (!preg_match($pattern, $startAt ?? '', $start) || !preg_match($pattern, $endAt ?? '', $end)) {
+            throw $this->invalidBookingData('Giờ bắt đầu và kết thúc phải thuộc ngày của khung giờ đã chọn.');
+        }
+        $startTime = $start[1] . ':00';
+        $endTime = $end[1] . ':00';
+        if ($startTime < $schedule['start_time'] || $endTime > $schedule['end_time']) {
+            throw $this->invalidBookingData('Buổi tập phải nằm trọn trong khung giờ của PT.');
+        }
+        $this->validateDuration($startTime, $endTime);
+        $timezone = new DateTimeZone('Asia/Ho_Chi_Minh');
+        $utc = new DateTimeZone('UTC');
+        $startDate = new DateTimeImmutable($startAt, $timezone);
+        $endDate = new DateTimeImmutable($endAt, $timezone);
+        if ($startDate->getTimestamp() - time() < self::MEMBER_CANCELLATION_LIMIT_HOURS * 3600) {
+            throw new BookingException('Bạn cần đặt lịch trước ít nhất 24 giờ.', 'BOOKING_SLOT_UNAVAILABLE', 409);
+        }
+        $schedule['start_time'] = $startTime;
+        $schedule['end_time'] = $endTime;
+        $schedule['start_at'] = $startDate->setTimezone($utc)->format('Y-m-d H:i:s');
+        $schedule['end_at'] = $endDate->setTimezone($utc)->format('Y-m-d H:i:s');
+        return $schedule;
     }
 
     public function createTrainerSchedule(
@@ -760,14 +934,14 @@ class BookingService
     ): void {
         if (
             $bookingId <= 0
-            || !in_array($action, ['confirm', 'reject', 'complete'], true)
+            || !in_array($action, ['confirm', 'reject', 'cancel', 'complete'], true)
             || $this->textLength($reason) > 255
         ) {
             throw $this->invalidBookingData('Thao tác booking không hợp lệ.');
         }
 
-        if ($action === 'reject' && trim($reason) === '') {
-            throw $this->invalidBookingData('Vui lòng nhập lý do từ chối.');
+        if (in_array($action, ['reject', 'cancel'], true) && trim($reason) === '') {
+            throw $this->invalidBookingData('Vui lòng nhập lý do hủy hoặc từ chối.');
         }
 
         $this->db->beginTransaction();
@@ -805,8 +979,11 @@ class BookingService
         int $memberId,
         int $bookingId,
         int $requestedScheduleId,
-        string $reason
+        string $reason,
+        ?string $startAt = null,
+        ?string $endAt = null
     ): int {
+        $this->expireHolds();
         if (
             $bookingId <= 0
             || $requestedScheduleId <= 0
@@ -840,9 +1017,9 @@ class BookingService
                 );
             }
 
-            if ($this->bookingHasStarted($booking)) {
+            if ((int) $booking['seconds_until_start'] < self::MEMBER_CANCELLATION_LIMIT_HOURS * 3600) {
                 throw new BookingException(
-                    'Không thể đổi lịch sau khi buổi tập đã bắt đầu.',
+                    'Không thể đổi lịch khi còn dưới 24 giờ trước buổi tập.',
                     'BOOKING_CHANGE_DEADLINE_PASSED',
                     409
                 );
@@ -850,7 +1027,7 @@ class BookingService
 
             $this->lockTrainer($booking['trainer_id']);
             $this->assertNoPendingChangeRequest($bookingId);
-            $newSchedule = $this->lockAvailableSchedule($requestedScheduleId);
+            $newSchedule = $this->selectBookingTime($this->lockAvailableSchedule($requestedScheduleId), $startAt, $endAt);
 
             if ((int) $newSchedule['trainer_id'] !== (int) $booking['trainer_id']) {
                 throw new BookingException(
@@ -860,9 +1037,11 @@ class BookingService
                 );
             }
 
-            if ((int) $newSchedule['schedule_id'] === (int) $booking['schedule_id']) {
+            if ($newSchedule['work_date'] === $booking['work_date'] && $newSchedule['start_time'] === $booking['start_time']) {
                 throw $this->invalidBookingData('Khung giờ mới phải khác khung giờ hiện tại.');
             }
+
+            $this->assertSameDuration($booking, $newSchedule);
 
             $this->validateMembershipForDate(
                 (int) $booking['member_id'],
@@ -878,7 +1057,7 @@ class BookingService
             $stmt = $this->db->prepare(
                 "INSERT INTO booking_change_requests
                     (booking_id, requested_by, old_schedule_id, new_schedule_id, new_start_at, new_end_at, reason)
-                 SELECT b.id, :member_id, b.schedule_id, s.id, s.start_at, s.end_at, :reason
+                 SELECT b.id, :member_id, b.schedule_id, s.id, :start_at, :end_at, :reason
                  FROM bookings b CROSS JOIN schedules s
                  WHERE b.id = :booking_id AND s.id = :schedule_id"
             );
@@ -886,6 +1065,8 @@ class BookingService
                 'booking_id' => $bookingId,
                 'member_id' => $memberId,
                 'schedule_id' => $requestedScheduleId,
+                'start_at' => $newSchedule['start_at'],
+                'end_at' => $newSchedule['end_at'],
                 'reason' => trim($reason)
             ]);
             $requestId = (int) $this->db->lastInsertId();
@@ -982,7 +1163,8 @@ class BookingService
         int $requestId,
         bool $approve,
         string $decisionReason = ''
-    ): void {
+    ): bool {
+        $this->expireHolds();
         if (
             $bookingId <= 0
             || $requestId <= 0
@@ -994,10 +1176,19 @@ class BookingService
             );
         }
 
+        $owner = $this->db->prepare('SELECT member_id FROM bookings WHERE id = ? AND pt_id = ?');
+        $owner->execute([$bookingId, $memberId]);
+        $ownerId = $owner->fetchColumn();
+        if ($ownerId === false) {
+            throw new BookingException('Bạn không có quyền xử lý yêu cầu này.', 'BOOKING_FORBIDDEN', 403);
+        }
+
         $this->db->beginTransaction();
 
         try {
-            $this->lockMember($memberId);
+            $ownerLock = $this->db->prepare('SELECT id FROM users WHERE id = ? FOR UPDATE');
+            $ownerLock->execute([$ownerId]);
+            $ownerLock->fetchColumn();
             $trainerId = $this->lockTrainerForAccount($memberId);
             $booking = $this->lockBooking($bookingId);
 
@@ -1017,20 +1208,14 @@ class BookingService
                 );
             }
 
-            if ($this->bookingHasStarted($booking)) {
-                throw new BookingException(
-                    'Yêu cầu đổi lịch đã hết hạn vì buổi tập đã bắt đầu.',
-                    'BOOKING_CHANGE_DEADLINE_PASSED',
-                    409
-                );
-            }
-
             $stmt = $this->db->prepare(
-                "SELECT *
-                 FROM booking_change_request
-                 WHERE request_id = :request_id
-                   AND booking_id = :booking_id
-                   AND status = 'pending'
+                "SELECT cr.*, DATE_FORMAT(proposed.new_start_at + INTERVAL 7 HOUR, '%Y-%m-%dT%H:%i') AS proposed_start,
+                        DATE_FORMAT(proposed.new_end_at + INTERVAL 7 HOUR, '%Y-%m-%dT%H:%i') AS proposed_end
+                 FROM booking_change_request cr
+                 JOIN booking_change_requests proposed ON proposed.id = cr.request_id
+                 WHERE cr.request_id = :request_id
+                   AND cr.booking_id = :booking_id
+                   AND cr.status = 'pending'
                  FOR UPDATE"
             );
             $stmt->execute([
@@ -1049,38 +1234,58 @@ class BookingService
 
             $requestedSchedule = null;
             if ($approve) {
-                $requestedSchedule = $this->lockAvailableSchedule(
-                    (int) $changeRequest['requested_schedule_id']
-                );
-                if ((int) $requestedSchedule['trainer_id'] !== $trainerId) {
-                    throw new BookingException(
-                        'Khung giờ yêu cầu không còn thuộc lịch của bạn.',
-                        'TRAINER_NOT_AVAILABLE',
-                        409
+                try {
+                    if ((int) $booking['seconds_until_start'] < self::MEMBER_CANCELLATION_LIMIT_HOURS * 3600) {
+                        throw new BookingException(
+                            'Yêu cầu đổi lịch đã hết hạn vì còn dưới 24 giờ trước buổi tập.',
+                            'BOOKING_CHANGE_DEADLINE_PASSED',
+                            409
+                        );
+                    }
+
+                    $requestedSchedule = $this->selectBookingTime(
+                        $this->lockAvailableSchedule((int) $changeRequest['requested_schedule_id']),
+                        $changeRequest['proposed_start'],
+                        $changeRequest['proposed_end']
                     );
+                    if ((int) $requestedSchedule['trainer_id'] !== $trainerId) {
+                        throw new BookingException(
+                            'Khung giờ yêu cầu không còn thuộc lịch của bạn.',
+                            'TRAINER_NOT_AVAILABLE',
+                            409
+                        );
+                    }
+
+                    $this->assertSameDuration($booking, $requestedSchedule);
+
+                    $this->validateMembershipForDate(
+                        (int) $booking['member_id'],
+                        $requestedSchedule['work_date']
+                    );
+                    $this->assertNoActiveBookingConflict(
+                        (int) $booking['member_id'],
+                        $trainerId,
+                        $requestedSchedule,
+                        $bookingId
+                    );
+                } catch (BookingException $error) {
+                    $approve = false;
+                    $decisionReason = $error->getMessage();
                 }
+            }
 
-                $this->validateMembershipForDate(
-                    (int) $booking['member_id'],
-                    $requestedSchedule['work_date']
-                );
-                $this->assertNoActiveBookingConflict(
-                    (int) $booking['member_id'],
-                    $trainerId,
-                    $requestedSchedule,
-                    $bookingId
-                );
-
+            if ($approve) {
                 $before = $this->bookingSnapshot($booking);
                 $stmt = $this->db->prepare(
                     "UPDATE bookings b JOIN schedules s ON s.id = :schedule_id
-                     SET b.schedule_id = s.id, b.start_at = s.start_at, b.end_at = s.end_at,
-                         b.duration_minutes = TIMESTAMPDIFF(MINUTE, s.start_at, s.end_at),
-                         b.status = 'Pending', b.cancel_reason = NULL
+                     SET b.schedule_id = s.id, b.start_at = :start_at, b.end_at = :end_at,
+                         b.cancel_reason = NULL
                      WHERE b.id = :booking_id"
                 );
                 $stmt->execute([
                     'schedule_id' => $requestedSchedule['schedule_id'],
+                    'start_at' => $requestedSchedule['start_at'],
+                    'end_at' => $requestedSchedule['end_at'],
                     'booking_id' => $bookingId
                 ]);
                 $this->recordBookingAudit(
@@ -1091,7 +1296,7 @@ class BookingService
                     $before,
                     [
                         'schedule_id' => (int) $requestedSchedule['schedule_id'],
-                        'status' => 'pending'
+                        'status' => $booking['status']
                     ]
                 );
             } else {
@@ -1132,16 +1337,17 @@ class BookingService
                 (int) $booking['member_id'],
                 $bookingId,
                 'Yêu cầu đổi lịch được duyệt',
-                'Lịch tập mới đã được cập nhật và đang chờ PT xác nhận lại.'
+                'Lịch tập mới đã được cập nhật.'
             );
         } else {
             $this->createNotification(
                 (int) $booking['member_id'],
                 $bookingId,
                 'Yêu cầu đổi lịch bị từ chối',
-                'PT đã từ chối yêu cầu đổi lịch. Booking ban đầu vẫn được giữ nguyên.'
+                trim($decisionReason)
             );
         }
+        return $approve;
     }
 
     public function updateBookingAsAdmin(
@@ -1233,6 +1439,7 @@ class BookingService
                     'reason' => trim($reason),
                     'booking_id' => $bookingId
                 ]);
+                $this->requestBookingRefund($bookingId, trim($reason));
                 $this->cancelPendingChangeRequests($bookingId);
                 $this->recordBookingAudit(
                     $bookingId,
@@ -1470,33 +1677,40 @@ class BookingService
             return;
         }
 
-        if ($action === 'reject') {
-            if ($booking['status'] !== 'pending') {
+        if (in_array($action, ['reject', 'cancel'], true)) {
+            $cancel = $action === 'cancel';
+            if (
+                $booking['status'] !== ($cancel ? 'confirmed' : 'pending')
+                || ($cancel && (int) $booking['seconds_until_start'] <= 0)
+            ) {
                 throw new BookingException(
-                    'Chỉ có thể từ chối booking đang chờ.',
+                    'Booking hiện không thể hủy hoặc từ chối.',
                     'BOOKING_STATE_INVALID',
                     409
                 );
             }
 
+            $status = $cancel ? 'cancelled' : 'rejected';
             $stmt = $this->db->prepare(
                 "UPDATE bookings
-                 SET status = 'rejected',
+                 SET status = :status,
                      cancel_reason = :reason
                  WHERE id = :booking_id"
             );
             $stmt->execute([
+                'status' => $status,
                 'reason' => trim($reason),
                 'booking_id' => $bookingId
             ]);
+            $this->requestBookingRefund($bookingId, trim($reason));
             $this->cancelPendingChangeRequests($bookingId);
             $this->recordBookingAudit(
                 $bookingId,
                 $actorMemberId,
-                'trainer_rejected',
+                'trainer_' . $status,
                 trim($reason),
                 $before,
-                ['status' => 'rejected', 'cancel_reason' => trim($reason)]
+                ['status' => $status, 'cancel_reason' => trim($reason)]
             );
             return;
         }
@@ -1513,12 +1727,29 @@ class BookingService
                 );
             }
 
+            $earnings = $this->db->prepare(
+                "INSERT INTO pt_earnings (pt_id, booking_id, amount)
+                 SELECT b.pt_id, b.id, b.fee_snapshot
+                 FROM bookings b JOIN payments p ON p.booking_id = b.id AND p.status = 'Success'
+                 WHERE b.id = ? AND NOT EXISTS (SELECT 1 FROM refunds r WHERE r.payment_id = p.id)"
+            );
+            $earnings->execute([$bookingId]);
+            if ($earnings->rowCount() !== 1) {
+                throw new BookingException('Booking chưa có thanh toán hợp lệ.', 'BOOKING_PAYMENT_UNAVAILABLE', 409);
+            }
+
             $stmt = $this->db->prepare(
                 "UPDATE bookings
                  SET status = 'completed'
                  WHERE id = :booking_id"
             );
             $stmt->execute(['booking_id' => $bookingId]);
+            $this->db->prepare(
+                "UPDATE booking_change_requests
+                 SET status = 'Rejected', reviewed_at = UTC_TIMESTAMP(),
+                     reject_reason = 'Buổi tập đã hoàn thành.'
+                 WHERE booking_id = ? AND status = 'Pending'"
+            )->execute([$bookingId]);
             $this->recordBookingAudit(
                 $bookingId,
                 $actorMemberId,
@@ -1532,6 +1763,12 @@ class BookingService
 
     private function validateBookingForConfirmation(array $booking): void
     {
+        $payment = $this->db->prepare("SELECT id FROM payments WHERE booking_id = ? AND status = 'Success'");
+        $payment->execute([$booking['booking_id']]);
+        if ($payment->fetchColumn() === false) {
+            throw new BookingException('Booking chưa có thanh toán thành công.', 'BOOKING_PAYMENT_UNAVAILABLE', 409);
+        }
+
         if ((int) $booking['trainer_is_active'] !== 1) {
             throw new BookingException(
                 'Huấn luyện viên hiện không hoạt động.',
@@ -1602,17 +1839,19 @@ class BookingService
 
     private function validateDuration(string $startTime, string $endTime): void
     {
-        $duration = (
-            strtotime('1970-01-01 ' . $endTime)
-            - strtotime('1970-01-01 ' . $startTime)
-        ) / 60;
+        $start = strtotime('1970-01-01 ' . $startTime);
+        $end = strtotime('1970-01-01 ' . $endTime);
+        $duration = ($end - $start) / 60;
+        $startOffset = $start - strtotime('1970-01-01 00:00:00');
 
         if (
             $duration < self::MIN_BOOKING_DURATION_MINUTES
             || $duration > self::MAX_BOOKING_DURATION_MINUTES
+            || ($end - $start) % 900 !== 0
+            || $startOffset % 900 !== 0
         ) {
             throw new BookingException(
-                'Thời lượng buổi tập phải từ 30 đến 180 phút.',
+                'Lịch tập phải theo bước 15 phút và kéo dài từ 30 đến 180 phút.',
                 'INVALID_BOOKING_DURATION',
                 422
             );
@@ -1661,28 +1900,20 @@ class BookingService
         array $schedule,
         ?int $excludeBookingId = null
     ): void {
-        $sql = "SELECT b.booking_id
-                FROM booking b
-                INNER JOIN trainer_schedule occupied
-                    ON occupied.schedule_id = b.schedule_id
-                WHERE b.status IN ('pending', 'confirmed')
-                  AND occupied.work_date = :work_date
-                  AND occupied.start_time < :end_time
-                  AND occupied.end_time > :start_time
-                  AND (
-                      occupied.trainer_id = :trainer_id
-                      OR b.member_id = :member_id
-                  )";
+        $sql = "SELECT id FROM bookings
+                WHERE (status IN ('Pending', 'Confirmed')
+                       OR (status = 'AwaitingPayment' AND hold_expires_at > UTC_TIMESTAMP()))
+                  AND start_at < :end_at AND end_at > :start_at
+                  AND (pt_id = :trainer_id OR member_id = :member_id)";
         $params = [
-            'work_date' => $schedule['work_date'],
-            'end_time' => $schedule['end_time'],
-            'start_time' => $schedule['start_time'],
+            'end_at' => $schedule['end_at'],
+            'start_at' => $schedule['start_at'],
             'trainer_id' => $trainerId,
             'member_id' => $memberId
         ];
 
         if ($excludeBookingId !== null) {
-            $sql .= ' AND b.booking_id <> :exclude_booking_id';
+            $sql .= ' AND id <> :exclude_booking_id';
             $params['exclude_booking_id'] = $excludeBookingId;
         }
 
@@ -1705,7 +1936,7 @@ class BookingService
              WHERE member_id = :member_id
                AND status = 'active'
                AND start_date <= :start_date
-               AND end_date >= :end_date
+               AND end_date > :end_date
              ORDER BY end_date DESC, membership_id DESC
              LIMIT 1
              FOR UPDATE"
@@ -1738,13 +1969,15 @@ class BookingService
                 s.start_time,
                 s.end_time,
                 s.status,
+                stored.start_at,
+                stored.end_at,
                 t.is_active AS trainer_is_active
              FROM trainer_schedule s
+             INNER JOIN schedules stored ON stored.id = s.schedule_id
              INNER JOIN personal_trainer t ON t.trainer_id = s.trainer_id
              WHERE s.schedule_id = :schedule_id
                AND s.status = 'available'
                AND t.is_active = 1
-               AND TIMESTAMP(s.work_date, s.start_time) > (UTC_TIMESTAMP() + INTERVAL 7 HOUR)
              FOR UPDATE"
         );
         $stmt->execute(['schedule_id' => $scheduleId]);
@@ -1757,8 +1990,6 @@ class BookingService
                 409
             );
         }
-
-        $this->validateDuration($schedule['start_time'], $schedule['end_time']);
 
         return $schedule;
     }
@@ -1777,21 +2008,24 @@ class BookingService
                 t.trainer_id,
                 t.is_active AS trainer_is_active,
                 t.member_id AS trainer_member_id,
-                s.work_date,
-                s.start_time,
-                s.end_time,
+                stored.start_at,
+                stored.end_at,
+                DATE(stored.start_at + INTERVAL 7 HOUR) AS work_date,
+                TIME(stored.start_at + INTERVAL 7 HOUR) AS start_time,
+                TIME(stored.end_at + INTERVAL 7 HOUR) AS end_time,
                 s.status AS schedule_status,
                 TIMESTAMPDIFF(
                     SECOND,
                     (UTC_TIMESTAMP() + INTERVAL 7 HOUR),
-                    TIMESTAMP(s.work_date, s.start_time)
+                    TIMESTAMP(DATE(stored.start_at + INTERVAL 7 HOUR), TIME(stored.start_at + INTERVAL 7 HOUR))
                 ) AS seconds_until_start,
                 TIMESTAMPDIFF(
                     SECOND,
                     (UTC_TIMESTAMP() + INTERVAL 7 HOUR),
-                    TIMESTAMP(s.work_date, s.end_time)
+                    TIMESTAMP(DATE(stored.start_at + INTERVAL 7 HOUR), TIME(stored.end_at + INTERVAL 7 HOUR))
                 ) AS seconds_until_end
              FROM booking b
+             INNER JOIN bookings stored ON stored.id = b.booking_id
              INNER JOIN trainer_schedule s ON s.schedule_id = b.schedule_id
              INNER JOIN personal_trainer t ON t.trainer_id = s.trainer_id
              WHERE b.booking_id = :booking_id
@@ -1926,11 +2160,6 @@ class BookingService
         return $stmt->fetchColumn() !== false;
     }
 
-    private function bookingHasStarted(array $booking): bool
-    {
-        return (int) $booking['seconds_until_start'] <= 0;
-    }
-
     private function assertNoPendingChangeRequest(int $bookingId): void
     {
         $stmt = $this->db->prepare(
@@ -1949,6 +2178,16 @@ class BookingService
                 409
             );
         }
+    }
+
+    private function requestBookingRefund(int $bookingId, string $reason): void
+    {
+        $this->db->prepare(
+            "INSERT INTO refunds (payment_id, booking_id, amount, reason)
+             SELECT id, booking_id, amount, ? FROM payments
+             WHERE booking_id = ? AND status = 'Success' AND amount > 0
+             ON DUPLICATE KEY UPDATE payment_id = VALUES(payment_id)"
+        )->execute([$reason, $bookingId]);
     }
 
     private function cancelPendingChangeRequests(int $bookingId): void
@@ -2025,7 +2264,7 @@ class BookingService
             ],
             'cancel' => [
                 'Lịch tập đã bị hủy',
-                'Booking của bạn đã bị Admin/Staff hủy: ' . trim($reason)
+                'Booking của bạn đã bị hủy: ' . trim($reason)
             ],
             default => null
         };
@@ -2134,6 +2373,7 @@ class BookingService
         int $bookingId,
         string $reason = ''
     ): void {
+        $this->expireHolds();
         if (
             $memberId <= 0
             || $bookingId <= 0
@@ -2152,16 +2392,17 @@ class BookingService
             $bookingStmt = $this->db->prepare(
                 'SELECT
                     b.status,
-                    s.work_date,
-                    s.start_time,
+                    DATE(stored.start_at + INTERVAL 7 HOUR) AS work_date,
+                    TIME(stored.start_at + INTERVAL 7 HOUR) AS start_time,
                     s.trainer_id,
                     t.full_name AS trainer_name,
                     TIMESTAMPDIFF(
                         SECOND,
                         (UTC_TIMESTAMP() + INTERVAL 7 HOUR),
-                        TIMESTAMP(s.work_date, s.start_time)
+                        TIMESTAMP(DATE(stored.start_at + INTERVAL 7 HOUR), TIME(stored.start_at + INTERVAL 7 HOUR))
                     ) AS seconds_until_start
                  FROM booking b
+                 INNER JOIN bookings stored ON stored.id = b.booking_id
                  INNER JOIN trainer_schedule s
                     ON s.schedule_id = b.schedule_id
                  INNER JOIN personal_trainer t
@@ -2184,7 +2425,7 @@ class BookingService
                 );
             }
 
-            if (!in_array($booking['status'], ['pending', 'confirmed'], true)) {
+            if (!in_array($booking['status'], ['awaitingpayment', 'pending', 'confirmed'], true)) {
                 throw new BookingException(
                     'Chỉ có thể hủy lịch đang chờ xác nhận hoặc đã được xác nhận.',
                     'BOOKING_STATE_INVALID',
@@ -2194,7 +2435,7 @@ class BookingService
 
             $minimumSeconds = self::MEMBER_CANCELLATION_LIMIT_HOURS * 3600;
 
-            if ((int) $booking['seconds_until_start'] < $minimumSeconds) {
+            if ($booking['status'] !== 'awaitingpayment' && (int) $booking['seconds_until_start'] < $minimumSeconds) {
                 throw new BookingException(
                     'Bạn chỉ có thể tự hủy lịch trước giờ tập ít nhất 24 tiếng.',
                     'BOOKING_CANCELLATION_DEADLINE_PASSED',
@@ -2213,6 +2454,9 @@ class BookingService
                 'cancel_reason' => $cancelReason,
                 'booking_id' => $bookingId
             ]);
+            $this->db->prepare("UPDATE payments SET status = 'Failed' WHERE booking_id = ? AND status = 'Pending'")
+                ->execute([$bookingId]);
+            $this->requestBookingRefund($bookingId, $cancelReason);
             $this->cancelPendingChangeRequests($bookingId);
             $this->recordBookingAudit(
                 $bookingId,
@@ -2269,22 +2513,6 @@ class BookingService
         $count = preg_match_all('/./us', $value);
 
         return $count === false ? PHP_INT_MAX : $count;
-    }
-
-    private function getTrainerName(int $trainerId): string
-    {
-        $stmt = $this->db->prepare(
-            'SELECT full_name FROM personal_trainer WHERE trainer_id = :trainer_id'
-        );
-        $stmt->execute(['trainer_id' => $trainerId]);
-        $trainerName = $stmt->fetchColumn();
-
-        if ($trainerName === false) {
-            error_log('Booking notification could not resolve trainer ' . $trainerId);
-            return 'huấn luyện viên';
-        }
-
-        return (string) $trainerName;
     }
 
     private function createNotification(

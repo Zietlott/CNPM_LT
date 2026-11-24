@@ -49,7 +49,7 @@ CREATE TABLE pt_profiles (
   bio                TEXT NULL,
   experience_years   TINYINT UNSIGNED NOT NULL DEFAULT 0,
   hourly_rate        DECIMAL(12,2) NULL,             -- NULL khi hồ sơ PT chưa có đơn giá
-  approval_status    ENUM('Pending','Approved','Rejected') NOT NULL DEFAULT 'Pending', -- chỉ Admin sửa
+  approval_status    ENUM('Pending','Approved','Rejected','Archived') NOT NULL DEFAULT 'Pending', -- chỉ Admin sửa
   accepting_bookings TINYINT(1) NOT NULL DEFAULT 1,                                     -- chỉ Admin/Staff sửa
   PRIMARY KEY (user_id),
   CONSTRAINT fk_pt_profiles_user FOREIGN KEY (user_id) REFERENCES users(id),
@@ -199,10 +199,7 @@ CREATE TABLE bookings (
   KEY idx_bookings_pt_status (pt_id, status),
   KEY idx_bookings_hold_expiry (status, hold_expires_at),     -- phục vụ job BOOK-12
   KEY idx_bookings_start (start_at),
-  -- Không có 2 Booking "đang chiếm" cùng 1 Schedule (BOOK-11, tiêu chí nghiệm thu module C)
-  active_schedule_id BIGINT UNSIGNED GENERATED ALWAYS AS (
-    IF(status IN ('AwaitingPayment','Pending','Confirmed','Completed'), schedule_id, NULL)) STORED,
-  UNIQUE KEY uq_bookings_active_schedule (active_schedule_id),
+  KEY idx_bookings_schedule_time (schedule_id, start_at, end_at),
   CONSTRAINT fk_bookings_member     FOREIGN KEY (member_id)     REFERENCES users(id),
   CONSTRAINT fk_bookings_pt         FOREIGN KEY (pt_id)         REFERENCES users(id),
   CONSTRAINT fk_bookings_schedule   FOREIGN KEY (schedule_id)   REFERENCES schedules(id),
