@@ -7,19 +7,19 @@
 
 document.addEventListener("DOMContentLoaded", () => {
     const menuToggle = document.getElementById("menuToggle");
-    const sidebar    = document.getElementById("sidebar");
-    const overlay    = document.getElementById("sidebarOverlay");
+    const sidebar = document.getElementById("sidebar");
+    const overlay = document.getElementById("sidebarOverlay");
 
     function openSidebar() {
-        if (sidebar)    { sidebar.classList.add("is-open"); }
-        if (overlay)    { overlay.classList.add("is-visible"); }
+        if (sidebar) { sidebar.classList.add("is-open"); }
+        if (overlay) { overlay.classList.add("is-visible"); }
         if (menuToggle) { menuToggle.setAttribute("aria-expanded", "true"); }
         document.body.style.overflow = "hidden";
     }
 
     function closeSidebar() {
-        if (sidebar)    { sidebar.classList.remove("is-open"); }
-        if (overlay)    { overlay.classList.remove("is-visible"); }
+        if (sidebar) { sidebar.classList.remove("is-open"); }
+        if (overlay) { overlay.classList.remove("is-visible"); }
         if (menuToggle) { menuToggle.setAttribute("aria-expanded", "false"); }
         document.body.style.overflow = "";
     }

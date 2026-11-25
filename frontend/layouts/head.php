@@ -38,6 +38,9 @@ $extraCss  = $extraCss  ?? [];
     <!-- Base dashboard stylesheet -->
     <link href="../../assets/css/dashboard.css" rel="stylesheet">
 
+    <!-- Shared UI component library -->
+    <link href="../../assets/css/components.css" rel="stylesheet">
+
     <!-- Page-specific stylesheets -->
     <?php foreach ($extraCss as $cssPath): ?>
         <link href="<?= htmlspecialchars($cssPath, ENT_QUOTES, 'UTF-8') ?>" rel="stylesheet">

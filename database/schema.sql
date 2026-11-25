@@ -300,14 +300,17 @@ CREATE TABLE booking_change_requests (
 -- Module G - PT Earnings
 -- ---------------------------------------------------------------------
 CREATE TABLE pt_earnings (
-  id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  pt_id       BIGINT UNSIGNED NOT NULL,
-  booking_id  BIGINT UNSIGNED NOT NULL,
-  amount      DECIMAL(12,2) NOT NULL,
-  recorded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  pt_id          BIGINT UNSIGNED NOT NULL,
+  booking_id     BIGINT UNSIGNED NOT NULL,
+  amount         DECIMAL(12,2) NOT NULL,
+  payment_status ENUM('Paid', 'Pending') NOT NULL DEFAULT 'Pending',
+  paid_at        DATETIME NULL,
+  recorded_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
   UNIQUE KEY uq_pt_earnings_booking (booking_id),   -- ghi nhận đúng 1 lần (EARN-02)
   KEY idx_pt_earnings_pt_time (pt_id, recorded_at),
+  KEY idx_pt_earnings_status (payment_status),
   CONSTRAINT fk_pt_earnings_pt      FOREIGN KEY (pt_id)      REFERENCES users(id),
   CONSTRAINT fk_pt_earnings_booking FOREIGN KEY (booking_id) REFERENCES bookings(id),
   CONSTRAINT ck_pt_earnings_amount  CHECK (amount >= 0)
@@ -399,3 +402,20 @@ SELECT staff_id AS member_id,
 FROM staff_permissions
 WHERE permission IN ('BOOKING_MANAGE', 'BOOKING_CONFIRM', 'BOOKING_CANCEL')
 GROUP BY staff_id;
+
+-- ---------------------------------------------------------------------
+-- Module I - Trainer Leaves / Off-time Management
+-- ---------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS trainer_leaves (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  pt_id BIGINT UNSIGNED NOT NULL,
+  leave_date DATE NOT NULL,
+  start_time TIME NULL,
+  end_time TIME NULL,
+  reason VARCHAR(255) NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY idx_trainer_leaves_pt (pt_id, leave_date),
+  CONSTRAINT fk_trainer_leaves_pt FOREIGN KEY (pt_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

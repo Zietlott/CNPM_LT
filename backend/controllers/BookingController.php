@@ -96,6 +96,14 @@ class BookingController
         );
     }
 
+    public function createMyTrainerScheduleBatch(array $slots): array
+    {
+        return $this->service->createTrainerScheduleBatch(
+            $this->requireRole('trainer'),
+            $slots
+        );
+    }
+
     public function updateMyTrainerSchedule(
         int $scheduleId,
         string $workDate,
@@ -114,6 +122,14 @@ class BookingController
     public function deactivateMyTrainerSchedule(int $scheduleId): void
     {
         $this->service->deactivateTrainerSchedule(
+            $this->requireRole('trainer'),
+            $scheduleId
+        );
+    }
+
+    public function deleteMyTrainerSchedule(int $scheduleId): void
+    {
+        $this->service->deleteTrainerSchedule(
             $this->requireRole('trainer'),
             $scheduleId
         );

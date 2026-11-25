@@ -44,11 +44,28 @@ try {
             );
         }
 
-        $controller->deactivateMyTrainerSchedule($scheduleId);
+        if (!empty($input['permanent'])) {
+            $controller->deleteMyTrainerSchedule($scheduleId);
+            bookingRespond([
+                'success' => true,
+                'message' => 'Đã xóa khung giờ làm việc.'
+            ]);
+        } else {
+            $controller->deactivateMyTrainerSchedule($scheduleId);
+            bookingRespond([
+                'success' => true,
+                'message' => 'Đã khóa khung giờ.'
+            ]);
+        }
+    }
+
+    if ($method === 'POST' && !empty($input['batch']) && is_array($input['batch'])) {
+        $result = $controller->createMyTrainerScheduleBatch($input['batch']);
         bookingRespond([
             'success' => true,
-            'message' => 'Đã khóa khung giờ.'
-        ]);
+            'message' => 'Đã thêm thành công ' . $result['total_created'] . ' khung giờ làm việc.',
+            'data' => $result
+        ], 201);
     }
 
     $workDate = $input['work_date'] ?? null;

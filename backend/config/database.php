@@ -31,18 +31,34 @@ if (!function_exists('getDBConnection')) {
             $env('NAME', 'fitness_center')
         );
 
-        try {
-            $pdo = new PDO($dsn, $env('USER', 'root'), $env('PASS', ''), [
-                PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                PDO::ATTR_EMULATE_PREPARES   => false,
-                PDO::MYSQL_ATTR_INIT_COMMAND => "SET time_zone = '+00:00'",
-            ]);
-        } catch (PDOException $e) {
-            // Ghi log, không trả thông tin kết nối ra ngoài.
-            error_log('DB connection failed: ' . $e->getMessage());
-            throw new RuntimeException('Khong the ket noi co so du lieu');
+        $user = $env('USER', 'root');
+        $passEnv = getenv('DB_PASS');
+        $passwords = ($passEnv !== false) ? [$passEnv] : ['', '123456'];
+
+        $options = [
+            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES   => false,
+        ];
+        if (defined('Pdo\Mysql::ATTR_INIT_COMMAND')) {
+            $options[\Pdo\Mysql::ATTR_INIT_COMMAND] = "SET time_zone = '+00:00'";
+        } elseif (defined('PDO::MYSQL_ATTR_INIT_COMMAND')) {
+            $options[PDO::MYSQL_ATTR_INIT_COMMAND] = "SET time_zone = '+00:00'";
         }
+
+        $lastException = null;
+        foreach ($passwords as $pass) {
+            try {
+                $pdo = new PDO($dsn, $user, $pass, $options);
+                return $pdo;
+            } catch (PDOException $e) {
+                $lastException = $e;
+            }
+        }
+
+        // Ghi log, không trả thông tin kết nối ra ngoài.
+        error_log('DB connection failed: ' . ($lastException ? $lastException->getMessage() : 'Unknown error'));
+        throw new RuntimeException('Khong the ket noi co so du lieu');
 
         return $pdo;
     }

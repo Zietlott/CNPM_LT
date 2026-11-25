@@ -37,6 +37,7 @@ $menus = [
         'brand' => ['href' => '../trainer/pt-bookings.php', 'label' => 'TRAINER AREA'],
         'items' => [
             ['key' => 'pt-bookings', 'icon' => '▦',  'label' => 'Booking & lịch làm việc', 'href' => '../trainer/pt-bookings.php'],
+            ['key' => 'earnings',    'icon' => '💰', 'label' => 'Thu nhập của tôi',         'href' => '../trainer/earnings.php'],
             ['key' => 'profile',     'icon' => '⚙',  'label' => 'Thông tin cá nhân',       'href' => '../trainer/profile.php'],
         ],
         'logout_href' => '../auth/logout.php',
@@ -48,6 +49,7 @@ $menus = [
             ['key' => 'bookings',    'icon' => '▦',  'label' => 'Quản lý booking',     'href' => '../admin/bookings.php'],
             ['key' => 'members',     'icon' => '👤', 'label' => 'Quản lý hội viên',    'href' => '../admin/members.php'],
             ['key' => 'trainers-ad', 'icon' => '♙',  'label' => 'Quản lý PT',          'href' => '../admin/trainers.php'],
+            ['key' => 'earnings',    'icon' => '📊', 'label' => 'Thu nhập PT',          'href' => '../admin/earnings.php'],
             ['key' => 'profile',     'icon' => '⚙',  'label' => 'Thông tin cá nhân',   'href' => '../trainer/profile.php'],
         ],
         'logout_href' => '../auth/logout.php',
@@ -66,8 +68,10 @@ $menus = [
 $menu       = $menus[$sidebarRole] ?? $menus['member'];
 $brandHref  = $brandHref ?? $menu['brand']['href'];
 
-function e(string $str): string {
-    return htmlspecialchars($str, ENT_QUOTES, 'UTF-8');
+if (!function_exists('e')) {
+    function e(string $str): string {
+        return htmlspecialchars($str, ENT_QUOTES, 'UTF-8');
+    }
 }
 ?>
 
