@@ -1,71 +1,76 @@
 <?php
 
+declare(strict_types=1);
+
 require_once __DIR__ . '/../../controllers/MembershipController.php';
+require_once __DIR__ . '/../../helpers/auth.php';
 
 header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store');
 
-// Chỉ cho phép POST
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    header('Allow: POST');
-    http_response_code(405);
-
-    echo json_encode([
-        'success' => false,
-        'message' => 'Method not allowed'
-    ], JSON_UNESCAPED_UNICODE);
-
+function membershipRegisterResponse(int $status, array $body): never
+{
+    http_response_code($status);
+    echo json_encode($body, JSON_UNESCAPED_UNICODE);
     exit;
 }
 
-// Chỉ nhận JSON
-$contentType = $_SERVER['CONTENT_TYPE'] ?? '';
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    header('Allow: POST');
+    membershipRegisterResponse(405, [
+        'success' => false,
+        'message' => 'Method not allowed'
+    ]);
+}
 
-if (!preg_match('/^application\/json(?:\s*;|$)/i', $contentType)) {
-    http_response_code(415);
+if (!isLoggedIn() || !isMember()) {
+    membershipRegisterResponse(401, [
+        'success' => false,
+        'message' => 'Can dang nhap bang tai khoan hoi vien'
+    ]);
+}
 
-    echo json_encode([
+if (!preg_match(
+    '/^application\/json(?:\s*;|$)/i',
+    $_SERVER['CONTENT_TYPE'] ?? ''
+)) {
+    membershipRegisterResponse(415, [
         'success' => false,
         'message' => 'Content-Type phai la application/json'
-    ], JSON_UNESCAPED_UNICODE);
+    ]);
+}
 
-    exit;
+$token = $_SERVER['HTTP_X_CSRF_TOKEN'] ?? null;
+
+if (!verifyCsrfToken($token)) {
+    membershipRegisterResponse(403, [
+        'success' => false,
+        'message' => 'CSRF token khong hop le'
+    ]);
 }
 
 $input = json_decode(file_get_contents('php://input'), true);
 
-if (!is_array($input)
-    || !isset($input['plan_id'])
-    || filter_var(
+if (
+    !is_array($input) ||
+    !isset($input['plan_id']) ||
+    filter_var(
         $input['plan_id'],
         FILTER_VALIDATE_INT,
         ['options' => ['min_range' => 1]]
     ) === false
 ) {
-    http_response_code(400);
-
-    echo json_encode([
+    membershipRegisterResponse(400, [
         'success' => false,
         'message' => 'plan_id khong hop le'
-    ], JSON_UNESCAPED_UNICODE);
-
-    exit;
-}
-
-if (!isMember()) {
-    http_response_code(401);
-
-    echo json_encode([
-        'success' => false,
-        'message' => 'Can dang nhap bang tai khoan hoi vien'
-    ], JSON_UNESCAPED_UNICODE);
-
-    exit;
+    ]);
 }
 
 $controller = new MembershipController();
+$result = $controller->registerPlan((int)$input['plan_id']);
 
-$result = $controller->registerPlan((int) $input['plan_id']);
+if ($result['success']) {
+    membershipRegisterResponse(201, $result);
+}
 
-http_response_code($result['success'] ? 201 : 400);
-
-echo json_encode($result, JSON_UNESCAPED_UNICODE);
+membershipRegisterResponse(400, $result);

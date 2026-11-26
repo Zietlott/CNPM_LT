@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 require_once __DIR__ . '/../config/database.php';
 
 class MembershipService
@@ -11,21 +13,27 @@ class MembershipService
         $this->db = $db ?? getDBConnection();
     }
 
-    // Lấy danh sách gói hội viên
+    /**
+     * Lấy danh sách gói đang được bán.
+     */
     public function getAllPlans(): array
     {
-        $sql = "SELECT *
-                FROM membership_plan
-                ORDER BY plan_id ASC";
+        $stmt = $this->db->prepare(
+            "SELECT id, name, price, duration_days, description, status
+             FROM membership_plans
+             WHERE status = 'Active'
+             ORDER BY id ASC"
+        );
 
-        $stmt = $this->db->prepare($sql);
         $stmt->execute();
 
-        return $stmt->fetchAll();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-
-    // Đăng ký gói hội viên
+    /**
+     * Đăng ký Membership mới.
+     * Membership chỉ được kích hoạt sau khi thanh toán thành công.
+     */
     public function registerMembership(
         int $memberId,
         int $planId
@@ -36,77 +44,101 @@ class MembershipService
             );
         }
 
-        // Kiểm tra hội viên đang hoạt động
-        $sql = "SELECT member_id
-                FROM member
-                WHERE member_id = :member_id
-                  AND role = 'member'
-                  AND status = 'active'
-                LIMIT 1";
+        $this->db->beginTransaction();
 
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute(['member_id' => $memberId]);
-
-        if (!$stmt->fetch()) {
-            throw new InvalidArgumentException(
-                'Hoi vien khong ton tai hoac da bi khoa'
+        try {
+            // Khóa tài khoản để tránh đăng ký đồng thời.
+            $stmt = $this->db->prepare(
+                "SELECT id
+                 FROM users
+                 WHERE id = ?
+                   AND role = 'Member'
+                   AND status = 'Active'
+                 FOR UPDATE"
             );
-        }
 
-        // Kiểm tra gói tập có đang được bán không
-        $sql = "SELECT plan_id
-                FROM membership_plan
-                WHERE plan_id = :plan_id
-                  AND is_active = 1
-                LIMIT 1";
+            $stmt->execute([$memberId]);
 
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute(['plan_id' => $planId]);
+            if (!$stmt->fetch()) {
+                throw new InvalidArgumentException(
+                    'Hoi vien khong ton tai hoac da bi khoa'
+                );
+            }
 
-        if (!$stmt->fetch()) {
-            throw new InvalidArgumentException(
-                'Goi tap khong ton tai hoac da ngung ban'
+            // Kiểm tra và khóa gói tập.
+            $stmt = $this->db->prepare(
+                "SELECT id, name, price, duration_days
+                 FROM membership_plans
+                 WHERE id = ?
+                   AND status = 'Active'
+                 FOR UPDATE"
             );
-        }
 
-        // Không cho đăng ký mới khi còn gói active hoặc pending
-        $sql = "SELECT membership_id
-                FROM membership
-                WHERE member_id = :member_id
-                  AND status IN ('pending', 'active')
-                LIMIT 1";
+            $stmt->execute([$planId]);
+            $plan = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute(['member_id' => $memberId]);
+            if (!$plan) {
+                throw new InvalidArgumentException(
+                    'Goi tap khong ton tai hoac da ngung ban'
+                );
+            }
 
-        if ($stmt->fetch()) {
-            throw new InvalidArgumentException(
-                'Hoi vien dang co goi tap chua hoan tat'
+            // Không cho đăng ký khi còn Membership PendingPayment hoặc Active.
+            $stmt = $this->db->prepare(
+                "SELECT id
+                 FROM memberships
+                 WHERE member_id = ?
+                   AND status IN ('PendingPayment', 'Active')
+                 LIMIT 1
+                 FOR UPDATE"
             );
+
+            $stmt->execute([$memberId]);
+
+            if ($stmt->fetch()) {
+                throw new DomainException(
+                    'Hoi vien dang co goi tap chua hoan tat'
+                );
+            }
+
+            // Tạo Membership ở trạng thái chờ thanh toán.
+            $stmt = $this->db->prepare(
+                "INSERT INTO memberships (
+                    member_id,
+                    plan_id,
+                    plan_name_snapshot,
+                    price_snapshot,
+                    duration_days_snapshot,
+                    status
+                ) VALUES (?, ?, ?, ?, ?, 'PendingPayment')"
+            );
+
+            $stmt->execute([
+                $memberId,
+                $plan['id'],
+                $plan['name'],
+                $plan['price'],
+                $plan['duration_days']
+            ]);
+
+            $membershipId = (int) $this->db->lastInsertId();
+
+            $this->db->commit();
+
+            return $membershipId;
+
+        } catch (Throwable $e) {
+            if ($this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+
+            throw $e;
         }
-
-        // Tạo đăng ký mới, chưa kích hoạt gói
-        $sql = "INSERT INTO memberships
-                    (member_id, plan_id, plan_name_snapshot, price_snapshot, duration_days_snapshot)
-                SELECT :member_id, id, name, price, duration_days
-                FROM membership_plans
-                WHERE id = :plan_id AND status = 'Active'";
-
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([
-            'member_id' => $memberId,
-            'plan_id' => $planId
-        ]);
-
-        if ($stmt->rowCount() !== 1) {
-            throw new InvalidArgumentException('Goi tap khong ton tai hoac da ngung ban');
-        }
-
-        return (int) $this->db->lastInsertId();
     }
 
-
-    // Lấy lịch sử đăng ký gói của một hội viên
+    /**
+     * Lấy lịch sử Membership.
+     */
     public function getMembershipHistory(int $memberId): array
     {
         if ($memberId <= 0) {
@@ -115,33 +147,35 @@ class MembershipService
             );
         }
 
-        $sql = "SELECT
-                    ms.membership_id,
-                    ms.member_id,
-                    ms.plan_id,
-                    stored.plan_name_snapshot AS plan_name,
-                    stored.price_snapshot AS price,
-                    GREATEST(1, ROUND(stored.duration_days_snapshot / 30)) AS duration_months,
-                    ms.start_date,
-                    ms.end_date,
-                    ms.status,
-                    ms.created_at
-                FROM membership ms
-                INNER JOIN memberships stored ON stored.id = ms.membership_id
-                WHERE ms.member_id = :member_id
-                ORDER BY ms.created_at DESC,
-                         ms.membership_id DESC";
+        $stmt = $this->db->prepare(
+            "SELECT
+                id AS membership_id,
+                member_id,
+                plan_id,
+                plan_name_snapshot AS plan_name,
+                price_snapshot AS price,
+                duration_days_snapshot AS duration_days,
+                GREATEST(
+                    1,
+                    ROUND(duration_days_snapshot / 30)
+                ) AS duration_months,
+                start_date,
+                end_date,
+                status,
+                created_at
+             FROM memberships
+             WHERE member_id = ?
+             ORDER BY created_at DESC, id DESC"
+        );
 
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([
-            'member_id' => $memberId
-        ]);
+        $stmt->execute([$memberId]);
 
-        return $stmt->fetchAll();
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-
-    // Lấy gói hội viên đang có hiệu lực
+    /**
+     * Lấy Membership đang có hiệu lực.
+     */
     public function getCurrentMembership(int $memberId): ?array
     {
         if ($memberId <= 0) {
@@ -150,34 +184,39 @@ class MembershipService
             );
         }
 
-        $sql = "SELECT
-                    ms.membership_id,
-                    ms.member_id,
-                    ms.plan_id,
-                    stored.plan_name_snapshot AS plan_name,
-                    stored.price_snapshot AS price,
-                    GREATEST(1, ROUND(stored.duration_days_snapshot / 30)) AS duration_months,
-                    ms.start_date,
-                    ms.end_date,
-                    ms.status
-                FROM membership ms
-                INNER JOIN memberships stored ON stored.id = ms.membership_id
-                WHERE ms.member_id = :member_id
-                  AND ms.status = 'active'
-                  AND ms.start_date <= DATE(UTC_TIMESTAMP() + INTERVAL 7 HOUR)
-                  AND ms.end_date >= DATE(UTC_TIMESTAMP() + INTERVAL 7 HOUR)
-                ORDER BY ms.end_date DESC,
-                         ms.membership_id DESC
-                LIMIT 1";
+        $stmt = $this->db->prepare(
+            "SELECT
+                id AS membership_id,
+                member_id,
+                plan_id,
+                plan_name_snapshot AS plan_name,
+                price_snapshot AS price,
+                duration_days_snapshot AS duration_days,
+                GREATEST(
+                    1,
+                    ROUND(duration_days_snapshot / 30)
+                ) AS duration_months,
+                start_date,
+                end_date,
+                status,
+                created_at
+             FROM memberships
+             WHERE member_id = ?
+               AND status = 'Active'
+               AND start_date <= DATE(
+                   UTC_TIMESTAMP() + INTERVAL 7 HOUR
+               )
+               AND end_date >= DATE(
+                   UTC_TIMESTAMP() + INTERVAL 7 HOUR
+               )
+             ORDER BY end_date DESC, id DESC
+             LIMIT 1"
+        );
 
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([
-            'member_id' => $memberId
-        ]);
+        $stmt->execute([$memberId]);
 
-        $membership = $stmt->fetch();
+        $membership = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return $membership ?: null;
     }
-
 }
