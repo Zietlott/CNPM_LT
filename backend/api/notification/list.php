@@ -1,55 +1,73 @@
 <?php
-/**
- * API LẤY DANH SÁCH THÔNG BÁO CHO TÀI KHOẢN ĐANG ĐĂNG NHẬP
- * FITZONE - FITNESS CENTER
- */
 
-require_once __DIR__ . '/../../helpers/auth.php';
-require_once __DIR__ . '/../../config/database.php';
+/**
+ * API lấy danh sách thông báo của người dùng.
+ * Method: GET
+ */
 
 header('Content-Type: application/json; charset=UTF-8');
 
+require_once __DIR__ . '/../../helpers/auth.php';
+require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../controllers/NotificationController.php';
+
+function notificationListResponse(int $status, array $data): void
+{
+    http_response_code($status);
+
+    echo json_encode(
+        $data,
+        JSON_UNESCAPED_UNICODE
+    );
+
+    exit;
+}
+
+// Chỉ cho phép GET
+if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+    header('Allow: GET');
+
+    notificationListResponse(405, [
+        'success' => false,
+        'message' => 'Phương thức không được hỗ trợ.'
+    ]);
+}
+
+// Kiểm tra đăng nhập
 if (!isLoggedIn()) {
-    http_response_code(401);
-    echo json_encode([
+    notificationListResponse(401, [
         'success' => false,
         'message' => 'Vui lòng đăng nhập để xem thông báo.',
         'errorCode' => 'UNAUTHENTICATED'
     ]);
-    exit;
 }
 
 $userId = (int) ($_SESSION['member_id'] ?? 0);
-$db = getDBConnection();
+
+if ($userId <= 0) {
+    notificationListResponse(401, [
+        'success' => false,
+        'message' => 'Phiên đăng nhập không hợp lệ.'
+    ]);
+}
 
 try {
-    // Đếm số thông báo chưa đọc
-    $stmtCount = $db->prepare('SELECT COUNT(*) FROM notifications WHERE user_id = :user_id AND is_read = 0');
-    $stmtCount->execute(['user_id' => $userId]);
-    $unreadCount = (int) $stmtCount->fetchColumn();
+    $db = getDBConnection();
 
-    // Lấy 30 thông báo gần nhất
-    $stmt = $db->prepare(
-        'SELECT id, user_id, type, title, content, reference_id, is_read, created_at
-         FROM notifications
-         WHERE user_id = :user_id
-         ORDER BY created_at DESC, id DESC
-         LIMIT 30'
+    $controller = new NotificationController($db);
+
+    notificationListResponse(
+        200,
+        $controller->list($userId)
     );
-    $stmt->execute(['user_id' => $userId]);
-    $notifications = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    echo json_encode([
-        'success' => true,
-        'data' => [
-            'notifications' => $notifications,
-            'unread_count'  => $unreadCount
-        ]
-    ]);
 } catch (Throwable $e) {
-    http_response_code(500);
-    echo json_encode([
+    error_log(
+        'Notification list error: ' . $e->getMessage()
+    );
+
+    notificationListResponse(500, [
         'success' => false,
-        'message' => 'Lỗi khi tải thông báo: ' . $e->getMessage()
+        'message' => 'Không thể tải danh sách thông báo.'
     ]);
 }

@@ -12,6 +12,12 @@ document.addEventListener('DOMContentLoaded', function () {
 
     let notificationsData = [];
 
+    function getNotificationCsrfToken() {
+        return document.querySelector(
+            '.sidebar-bottom input[name="csrf_token"]'
+        )?.value || '';
+    }
+
     // Toggle dropdown
     btn.addEventListener('click', function (e) {
         e.stopPropagation();
@@ -36,10 +42,18 @@ document.addEventListener('DOMContentLoaded', function () {
             try {
                 const res = await fetch('../../backend/api/notification/read.php', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': getNotificationCsrfToken()
+                    },
                     body: JSON.stringify({ all: true })
                 });
                 const json = await res.json();
+
+                if (!res.ok || !json.success) {
+                    throw new Error(json.message || 'Không thể đánh dấu thông báo.');
+                }
+
                 if (json.success) {
                     badge.style.display = 'none';
                     badge.textContent = '0';
@@ -111,12 +125,24 @@ document.addEventListener('DOMContentLoaded', function () {
             el.addEventListener('click', async function () {
                 const id = this.getAttribute('data-id');
                 try {
-                    await fetch('../../backend/api/notification/read.php', {
+                    const res = await fetch('../../backend/api/notification/read.php', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ id: parseInt(id) })
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-Token': getNotificationCsrfToken()
+                        },
+                        body: JSON.stringify({ id: parseInt(id, 10) })
                     });
-                } catch (e) {}
+
+                    const json = await res.json();
+
+                    if (!res.ok || !json.success) {
+                        throw new Error(json.message || 'Không thể cập nhật thông báo.');
+                    }
+                } catch (e) {
+                    console.error('Mark notification read error:', e);
+                }
+
                 fetchNotifications();
             });
         });

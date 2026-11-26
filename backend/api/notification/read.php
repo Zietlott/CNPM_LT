@@ -1,57 +1,97 @@
 <?php
-/**
- * API ĐÁNH DẤU THÔNG BÁO ĐÃ ĐỌC
- * FITZONE - FITNESS CENTER
- */
 
-require_once __DIR__ . '/../../helpers/auth.php';
-require_once __DIR__ . '/../../config/database.php';
+/**
+ * FITZONE - Mark notifications as read
+ * Method: POST
+ */
 
 header('Content-Type: application/json; charset=UTF-8');
 
+require_once __DIR__ . '/../../helpers/auth.php';
+require_once __DIR__ . '/../../config/database.php';
+require_once __DIR__ . '/../../controllers/NotificationController.php';
+
+function notificationReadResponse(int $status, array $data): void
+{
+    http_response_code($status);
+    echo json_encode($data, JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+// Only POST is allowed
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    header('Allow: POST');
+    notificationReadResponse(405, [
+        'success' => false,
+        'message' => 'Phương thức không được hỗ trợ.'
+    ]);
+}
+
+// Authentication
 if (!isLoggedIn()) {
-    http_response_code(401);
-    echo json_encode([
+    notificationReadResponse(401, [
         'success' => false,
         'message' => 'Vui lòng đăng nhập.',
         'errorCode' => 'UNAUTHENTICATED'
     ]);
-    exit;
 }
 
 $userId = (int) ($_SESSION['member_id'] ?? 0);
-$db = getDBConnection();
 
-$input = json_decode(file_get_contents('php://input'), true) ?? [];
-$notificationId = filter_var($input['id'] ?? null, FILTER_VALIDATE_INT);
-$markAll = !empty($input['all']);
+if ($userId <= 0) {
+    notificationReadResponse(401, [
+        'success' => false,
+        'message' => 'Phiên đăng nhập không hợp lệ.'
+    ]);
+}
+
+// CSRF protection
+if (!verifyCsrfToken($_SERVER['HTTP_X_CSRF_TOKEN'] ?? null)) {
+    notificationReadResponse(403, [
+        'success' => false,
+        'message' => 'CSRF token không hợp lệ.'
+    ]);
+}
+
+// Validate JSON
+$input = json_decode(file_get_contents('php://input'), true);
+
+if (!is_array($input)) {
+    notificationReadResponse(400, [
+        'success' => false,
+        'message' => 'Dữ liệu JSON không hợp lệ.'
+    ]);
+}
+
+$markAll = ($input['all'] ?? false) === true;
+$notificationId = filter_var(
+    $input['id'] ?? null,
+    FILTER_VALIDATE_INT
+);
+
+if (!$markAll && (!$notificationId || $notificationId <= 0)) {
+    notificationReadResponse(422, [
+        'success' => false,
+        'message' => 'Dữ liệu không hợp lệ.'
+    ]);
+}
 
 try {
-    if ($markAll) {
-        $stmt = $db->prepare('UPDATE notifications SET is_read = 1 WHERE user_id = :user_id AND is_read = 0');
-        $stmt->execute(['user_id' => $userId]);
-        $updated = $stmt->rowCount();
-    } elseif ($notificationId) {
-        $stmt = $db->prepare('UPDATE notifications SET is_read = 1 WHERE id = :id AND user_id = :user_id');
-        $stmt->execute(['id' => $notificationId, 'user_id' => $userId]);
-        $updated = $stmt->rowCount();
-    } else {
-        http_response_code(422);
-        echo json_encode([
-            'success' => false,
-            'message' => 'Dữ liệu không hợp lệ.'
-        ]);
-        exit;
-    }
+    $controller = new NotificationController(getDBConnection());
 
-    echo json_encode([
-        'success' => true,
-        'message' => 'Đã đánh dấu thông báo đã đọc.'
-    ]);
+    notificationReadResponse(
+        200,
+        $controller->markRead(
+            $userId,
+            $notificationId ?: null,
+            $markAll
+        )
+    );
 } catch (Throwable $e) {
-    http_response_code(500);
-    echo json_encode([
+    error_log('Notification read error: ' . $e->getMessage());
+
+    notificationReadResponse(500, [
         'success' => false,
-        'message' => 'Lỗi cập nhật: ' . $e->getMessage()
+        'message' => 'Không thể cập nhật thông báo.'
     ]);
 }
