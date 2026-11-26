@@ -40,7 +40,7 @@ document.addEventListener('DOMContentLoaded', function () {
         btnMarkAll.addEventListener('click', async function (e) {
             e.stopPropagation();
             try {
-                const res = await fetch('../../backend/api/notification/read.php', {
+                const res = await fetch('/backend/api/notification/read.php', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -68,7 +68,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // Fetch notifications
     async function fetchNotifications() {
         try {
-            const res = await fetch('../../backend/api/notification/list.php');
+            const res = await fetch('/backend/api/notification/list.php');
             if (!res.ok) return;
             const payload = await res.json();
             const data = payload.data || payload;
@@ -125,7 +125,7 @@ document.addEventListener('DOMContentLoaded', function () {
             el.addEventListener('click', async function () {
                 const id = this.getAttribute('data-id');
                 try {
-                    const res = await fetch('../../backend/api/notification/read.php', {
+                    const res = await fetch('/backend/api/notification/read.php', {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json',
