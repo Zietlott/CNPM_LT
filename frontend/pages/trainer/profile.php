@@ -146,6 +146,21 @@ $topbarTitle = 'Thông tin cá nhân';
                                     <span class="form-text">Định dạng số điện thoại từ 9 đến 15 chữ số</span>
                                 </div>
 
+                                <?php if ($role === 'trainer'): ?>
+                                <div class="profile-field full-width">
+                                    <label for="ptSpecialty" class="form-label">Chuyên môn PT</label>
+                                    <input type="text" id="ptSpecialty" class="form-control" maxlength="255" required>
+                                </div>
+                                <div class="profile-field">
+                                    <label for="ptExperience" class="form-label">Số năm kinh nghiệm</label>
+                                    <input type="number" id="ptExperience" class="form-control" min="0" max="255" step="1" required>
+                                </div>
+                                <div class="profile-field full-width">
+                                    <label for="ptBio" class="form-label">Giới thiệu bản thân</label>
+                                    <textarea id="ptBio" class="form-control" rows="4" maxlength="5000"></textarea>
+                                </div>
+                                <?php endif; ?>
+
                                 <!-- Email (Không đổi) -->
                                 <div class="profile-field">
                                     <label for="email" class="form-label">
@@ -247,6 +262,10 @@ document.addEventListener("DOMContentLoaded", () => {
     const inputEmail    = document.getElementById("email");
     const inputRole     = document.getElementById("roleText");
     const inputCreated  = document.getElementById("createdAt");
+    const ptSpecialty = document.getElementById("ptSpecialty");
+    const ptExperience = document.getElementById("ptExperience");
+    const ptBio = document.getElementById("ptBio");
+    let initialTrainerProfile = null;
 
     const summaryAvatar = document.getElementById("summaryAvatar");
     const summaryName   = document.getElementById("summaryName");
@@ -324,6 +343,13 @@ document.addEventListener("DOMContentLoaded", () => {
             hideNotice();
             const data = await api.get("profile/me.php");
             renderProfile(data);
+            if (ptSpecialty && ptExperience && ptBio) {
+                const ptData = await api.get("trainer/my-profile.php");
+                initialTrainerProfile = ptData;
+                ptSpecialty.value = ptData.specialty || "";
+                ptExperience.value = ptData.experience_years ?? 0;
+                ptBio.value = ptData.description || "";
+            }
         } catch (error) {
             showNotice(error.message || "Không thể tải thông tin hồ sơ.", true);
         }
@@ -355,6 +381,15 @@ document.addEventListener("DOMContentLoaded", () => {
                 phone:     phone
             });
 
+            if (ptSpecialty && ptExperience && ptBio) {
+                await api.put("trainer/my-profile.php", {
+                    full_name: fullName,
+                    specialty: ptSpecialty.value.trim(),
+                    experience_years: Number(ptExperience.value),
+                    description: ptBio.value
+                });
+            }
+
             showNotice(res?.message || "Cập nhật thông tin cá nhân thành công!", false);
             await fetchProfile();
         } catch (error) {
@@ -368,6 +403,11 @@ document.addEventListener("DOMContentLoaded", () => {
     resetBtn.addEventListener("click", () => {
         if (initialProfile) {
             renderProfile(initialProfile);
+            if (initialTrainerProfile && ptSpecialty && ptExperience && ptBio) {
+                ptSpecialty.value = initialTrainerProfile.specialty || "";
+                ptExperience.value = initialTrainerProfile.experience_years ?? 0;
+                ptBio.value = initialTrainerProfile.description || "";
+            }
             showNotice("Đã khôi phục dữ liệu ban đầu.", false);
         }
     });

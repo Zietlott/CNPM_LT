@@ -4,7 +4,7 @@ Sơ đồ Mermaid (xem trực tiếp trên GitHub/GitLab hoặc dán vào https:
 
 ## Khởi tạo database cho dự án
 
-Import [schema.sql](../database/schema.sql) vào MySQL/MariaDB để tạo database `fitness_center` trống, rồi import [seed.sql](../database/seed.sql) để thêm tài khoản và dữ liệu mẫu. PHP mặc định kết nối tới `127.0.0.1:3306`, user `root`, mật khẩu rỗng. Đặt `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` hoặc `DB_PASS` nếu môi trường của bạn dùng cấu hình khác.
+Import [schema.sql](../database/schema.sql) vào MySQL/MariaDB để tạo database `fitness_center` trống, rồi import [seed.sql](../database/seed.sql) để thêm tài khoản và dữ liệu mẫu. PHP mặc định kết nối tới `127.0.0.1:3307`, user `root`, mật khẩu rỗng. Đặt `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` hoặc `DB_PASS` nếu môi trường của bạn dùng cấu hình khác.
 
 Các view trong `schema.sql` cung cấp tên trường mà giao diện PHP hiện dùng. Dữ liệu được lưu trong các bảng ở sơ đồ dưới đây.
 
@@ -24,6 +24,7 @@ erDiagram
     memberships ||--o| memberships : "renewed_from_id"
 
     users ||--o{ schedules : "pt_id"
+    users ||--o{ trainer_leaves : "pt_id"
     users ||--o{ bookings : "member_id"
     users ||--o{ bookings : "pt_id"
     schedules ||--o{ bookings : "schedule_id"
@@ -96,6 +97,14 @@ erDiagram
         datetime end_at
         enum status "Open|Closed"
     }
+    trainer_leaves {
+        bigint id PK
+        bigint pt_id FK
+        date leave_date
+        time start_time "NULL = cả ngày"
+        time end_time
+        varchar reason
+    }
     bookings {
         bigint id PK
         bigint member_id FK
@@ -161,7 +170,7 @@ erDiagram
 | Mỗi Member chỉ có 1 Membership Active | `memberships.active_member_id` (cột sinh) + `UNIQUE` |
 | Mỗi Booking chỉ có 1 yêu cầu đổi lịch đang chờ | `booking_change_requests.pending_booking_id` + `UNIQUE` |
 | Token đặt lại mật khẩu dùng 1 lần | `used_at` + `token_hash UNIQUE` (backend kiểm tra `used_at IS NULL`) |
-| Khung giờ hợp lệ, không trùng | `CHECK start_at < end_at`, `UNIQUE(pt_id, start_at)` |
+| Khung giờ hợp lệ, không trùng | `CHECK start_at < end_at`, `UNIQUE(pt_id, start_at)`; Service kiểm tra chồng lấn và ngày nghỉ PT |
 | Giữ nguyên lịch sử khi sửa gói | `memberships.*_snapshot` |
 
 ## Giả định thiết kế (cần cả nhóm thống nhất)

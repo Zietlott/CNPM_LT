@@ -51,6 +51,17 @@ class BookingService
                         AND occupied.start_time < s.end_time
                         AND occupied.end_time > s.start_time
                   )
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM trainer_leaves leave_row
+                      WHERE leave_row.pt_id = s.trainer_id
+                        AND leave_row.leave_date = s.work_date
+                        AND (
+                            leave_row.start_time IS NULL
+                            OR leave_row.end_time IS NULL
+                            OR (leave_row.start_time < s.end_time AND leave_row.end_time > s.start_time)
+                        )
+                  )
                 ORDER BY t.full_name";
 
         return $this->db->query($sql)->fetchAll();
@@ -86,6 +97,17 @@ class BookingService
                         AND occupied.work_date = s.work_date
                         AND occupied.start_time < s.end_time
                         AND occupied.end_time > s.start_time
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM trainer_leaves leave_row
+                      WHERE leave_row.pt_id = s.trainer_id
+                        AND leave_row.leave_date = s.work_date
+                        AND (
+                            leave_row.start_time IS NULL
+                            OR leave_row.end_time IS NULL
+                            OR (leave_row.start_time < s.end_time AND leave_row.end_time > s.start_time)
+                        )
                   )
                 ORDER BY s.start_time";
 
@@ -1783,6 +1805,32 @@ class BookingService
             throw new BookingException(
                 'Khung giờ làm việc bị trùng với lịch khác của bạn.',
                 'TRAINER_SCHEDULE_CONFLICT',
+                409
+            );
+        }
+
+        $leaveStmt = $this->db->prepare(
+            'SELECT id
+             FROM trainer_leaves
+             WHERE pt_id = :trainer_id
+               AND leave_date = :work_date
+               AND (
+                   start_time IS NULL
+                   OR end_time IS NULL
+                   OR (start_time < :end_time AND end_time > :start_time)
+               )
+             LIMIT 1 FOR UPDATE'
+        );
+        $leaveStmt->execute([
+            'trainer_id' => $trainerId,
+            'work_date' => $workDate,
+            'end_time' => $endTime,
+            'start_time' => $startTime
+        ]);
+        if ($leaveStmt->fetch()) {
+            throw new BookingException(
+                'Khung giờ làm việc trùng với thời gian PT đã đăng ký nghỉ.',
+                'TRAINER_LEAVE_CONFLICT',
                 409
             );
         }

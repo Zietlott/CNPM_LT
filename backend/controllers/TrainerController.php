@@ -54,14 +54,14 @@ class TrainerController
             ? trim($description)
             : null;
 
-        if ($fullName === '' || mb_strlen($fullName) > 100) {
+        if ($fullName === '' || mb_strlen($fullName) > 150) {
             return [
                 'success' => false,
                 'message' => 'Tên huấn luyện viên không hợp lệ.'
             ];
         }
 
-        if ($specialty === '' || mb_strlen($specialty) > 100) {
+        if ($specialty === '' || mb_strlen($specialty) > 255) {
             return [
                 'success' => false,
                 'message' => 'Chuyên môn không hợp lệ.'
@@ -75,7 +75,7 @@ class TrainerController
             ];
         }
 
-        if ($description !== null && mb_strlen($description) > 255) {
+        if ($description !== null && mb_strlen($description) > 5000) {
             return [
                 'success' => false,
                 'message' => 'Mô tả không được vượt quá 255 ký tự.'
@@ -130,14 +130,14 @@ class TrainerController
         $specialty = trim($specialty);
         $description = $description !== null ? trim($description) : null;
 
-        if ($fullName === '' || mb_strlen($fullName) > 100) {
+        if ($fullName === '' || mb_strlen($fullName) > 150) {
             return [
                 'success' => false,
                 'message' => 'Tên huấn luyện viên không hợp lệ.'
             ];
         }
 
-        if ($specialty === '' || mb_strlen($specialty) > 100) {
+        if ($specialty === '' || mb_strlen($specialty) > 255) {
             return [
                 'success' => false,
                 'message' => 'Chuyên môn không hợp lệ.'
@@ -151,7 +151,7 @@ class TrainerController
             ];
         }
 
-        if ($description !== null && mb_strlen($description) > 255) {
+        if ($description !== null && mb_strlen($description) > 5000) {
             return [
                 'success' => false,
                 'message' => 'Mô tả không được vượt quá 255 ký tự.'

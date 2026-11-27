@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/../../controllers/TrainerController.php';
 require_once __DIR__ . '/../../helpers/auth.php';
+require_once __DIR__ . '/../../helpers/permissions.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -15,11 +16,11 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-if (!isAdmin()) {
+if (!hasStaffPermission('PT_MANAGE')) {
     http_response_code(403);
     echo json_encode([
         'success' => false,
-        'message' => 'Bạn không có quyền truy cập.'
+        'message' => 'Bạn không có quyền quản lý PT.'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }

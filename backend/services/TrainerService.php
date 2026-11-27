@@ -132,4 +132,80 @@ class TrainerService
         return $trainer ?: null;
     }
 
+
+
+    /**
+     * PT tự xem hồ sơ tài khoản của mình.
+     */
+    public function getOwnProfile(int $userId): ?array
+    {
+        $stmt = $this->db->prepare(
+            "SELECT u.id AS trainer_id, u.full_name, u.email, u.phone,
+                    p.specialty, p.experience_years, p.bio AS description,
+                    p.hourly_rate, p.approval_status, p.accepting_bookings
+             FROM users u
+             INNER JOIN pt_profiles p ON p.user_id = u.id
+             WHERE u.id = ? AND u.role = 'PT' AND u.status = 'Active'
+             LIMIT 1"
+        );
+        $stmt->execute([$userId]);
+        $profile = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $profile ?: null;
+    }
+
+    /**
+     * PT chỉ được cập nhật thông tin công khai của chính mình.
+     * Không cho phép thay đổi role, trạng thái duyệt, đơn giá hoặc quyền nhận booking.
+     */
+    public function updateOwnProfile(
+        int $userId,
+        string $fullName,
+        string $specialty,
+        int $experienceYears,
+        ?string $bio
+    ): bool {
+        $fullName = trim($fullName);
+        $specialty = trim($specialty);
+        $bio = $bio !== null ? trim($bio) : null;
+
+        if ($userId <= 0 || $fullName === '' || mb_strlen($fullName) > 150
+            || $specialty === '' || mb_strlen($specialty) > 255
+            || $experienceYears < 0 || $experienceYears > 255
+            || ($bio !== null && mb_strlen($bio) > 5000)) {
+            throw new InvalidArgumentException('Thông tin hồ sơ PT không hợp lệ.');
+        }
+
+        $this->db->beginTransaction();
+        try {
+            $stmt = $this->db->prepare(
+                "SELECT u.id
+                 FROM users u
+                 INNER JOIN pt_profiles p ON p.user_id = u.id
+                 WHERE u.id = ? AND u.role = 'PT' AND u.status = 'Active'
+                 FOR UPDATE"
+            );
+            $stmt->execute([$userId]);
+            if (!$stmt->fetch()) {
+                throw new InvalidArgumentException('Không tìm thấy tài khoản PT đang hoạt động.');
+            }
+
+            $stmt = $this->db->prepare(
+                'UPDATE users SET full_name = ? WHERE id = ?'
+            );
+            $stmt->execute([$fullName, $userId]);
+
+            $stmt = $this->db->prepare(
+                'UPDATE pt_profiles
+                 SET specialty = ?, experience_years = ?, bio = ?
+                 WHERE user_id = ?'
+            );
+            $stmt->execute([$specialty, $experienceYears, $bio, $userId]);
+            $this->db->commit();
+            return true;
+        } catch (Throwable $error) {
+            if ($this->db->inTransaction()) $this->db->rollBack();
+            throw $error;
+        }
+    }
+
 }
