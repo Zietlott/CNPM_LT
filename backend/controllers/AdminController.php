@@ -75,10 +75,17 @@ class AdminController
         }
 
         try {
+            $actor = currentUser();
+
+            if (!$actor || (int) $actor['member_id'] <= 0) {
+                throw new RuntimeException('Không xác định được Admin.');
+            }
+
             $updated = $this->service->updateMember(
                 $memberId,
                 $fullName,
-                $phone
+                $phone,
+                (int) $actor['member_id']
             );
 
             return [
@@ -93,6 +100,9 @@ class AdminController
                 'success' => false,
                 'message' => $e->getMessage()
             ];
+        } catch (Throwable $e) {
+            error_log('Admin member operation failed: ' . $e->getMessage());
+            throw $e;
         }
     }
 
@@ -110,9 +120,16 @@ class AdminController
         }
 
         try {
+            $actor = currentUser();
+
+            if (!$actor || (int) $actor['member_id'] <= 0) {
+                throw new RuntimeException('Không xác định được Admin.');
+            }
+
             $updated = $this->service->updateMemberStatus(
                 $memberId,
-                $status
+                $status,
+                (int) $actor['member_id']
             );
 
             return [
@@ -127,6 +144,9 @@ class AdminController
                 'success' => false,
                 'message' => $e->getMessage()
             ];
+        } catch (Throwable $e) {
+            error_log('Admin member operation failed: ' . $e->getMessage());
+            throw $e;
         }
     }
 

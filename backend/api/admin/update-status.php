@@ -1,4 +1,3 @@
-
 <?php
 
 require_once __DIR__ . '/../../controllers/AdminController.php';
@@ -81,7 +80,7 @@ $status = $input['status'] ?? null;
 if (
     $memberId === false ||
     !is_string($status) ||
-    !in_array($status, ['active', 'locked'], true)
+    !in_array($status, ['Active', 'Locked'], true)
 ) {
     http_response_code(400);
 

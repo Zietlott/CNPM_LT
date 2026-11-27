@@ -14,11 +14,11 @@ class AdminService
     // Lấy danh sách hội viên
     public function getAllMembers(): array
     {
-        $sql = "SELECT member_id, full_name, email,
+        $sql = "SELECT id AS member_id, full_name, email,
                        phone, role, status, created_at
-                FROM member
-                WHERE role = 'member'
-                ORDER BY member_id DESC";
+                FROM users
+                WHERE role = 'Member'
+                ORDER BY id DESC";
 
         $stmt = $this->db->prepare($sql);
         $stmt->execute();
@@ -30,11 +30,11 @@ class AdminService
     // Lấy thông tin chi tiết hội viên theo ID
     public function getMemberById(int $memberId): ?array
     {
-        $sql = "SELECT member_id, full_name, email,
+        $sql = "SELECT id AS member_id, full_name, email,
                        phone, role, status, created_at
-                FROM member
-                WHERE member_id = :member_id
-                  AND role = 'member'
+                FROM users
+                WHERE id = :member_id
+                  AND role = 'Member'
                 LIMIT 1";
 
         $stmt = $this->db->prepare($sql);
@@ -53,7 +53,8 @@ class AdminService
     public function updateMember(
         int $memberId,
         string $fullName,
-        string $phone
+        string $phone,
+        int $actorId
     ): bool {
         $fullName = trim($fullName);
         $phone = trim($phone);
@@ -64,111 +65,212 @@ class AdminService
             );
         }
 
-        // Kiểm tra hội viên có tồn tại không
-        if ($this->getMemberById($memberId) === null) {
+        if ($actorId <= 0) {
             throw new InvalidArgumentException(
-                'Khong tim thay hoi vien'
+                'Nguoi thuc hien khong hop le'
             );
         }
 
-        // Kiểm tra số điện thoại có bị trùng không
-        $sql = "SELECT member_id
-                FROM member
-                WHERE phone = :phone
-                  AND member_id != :member_id
-                LIMIT 1";
+        $ownsTransaction = !$this->db->inTransaction();
 
-        $stmt = $this->db->prepare($sql);
-        $stmt->execute([
-            'phone' => $phone,
-            'member_id' => $memberId
-        ]);
-
-        if ($stmt->fetch()) {
-            throw new InvalidArgumentException(
-                'So dien thoai da duoc su dung'
-            );
+        if ($ownsTransaction) {
+            $this->db->beginTransaction();
         }
 
-        // Cập nhật thông tin
-        $sql = "UPDATE users
-                SET full_name = :full_name,
-                    phone = :phone
-                WHERE id = :member_id
-                  AND role = 'member'";
+        try {
+            $stmt = $this->db->prepare(
+                "SELECT id, full_name, phone
+                 FROM users
+                 WHERE id = :member_id AND role = 'Member'
+                 FOR UPDATE"
+            );
+            $stmt->execute(['member_id' => $memberId]);
+            $before = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        $stmt = $this->db->prepare($sql);
+            if (!$before) {
+                throw new InvalidArgumentException(
+                    'Khong tim thay hoi vien'
+                );
+            }
 
-        return $stmt->execute([
-            'full_name' => $fullName,
-            'phone' => $phone,
-            'member_id' => $memberId
-        ]);
+            $stmt = $this->db->prepare(
+                "SELECT id FROM users
+                 WHERE phone = :phone AND id != :member_id
+                 LIMIT 1"
+            );
+            $stmt->execute([
+                'phone' => $phone,
+                'member_id' => $memberId
+            ]);
+
+            if ($stmt->fetch()) {
+                throw new InvalidArgumentException(
+                    'So dien thoai da duoc su dung'
+                );
+            }
+
+            $changed = $before['full_name'] !== $fullName
+                || $before['phone'] !== $phone;
+
+            if (!$changed) {
+                if ($ownsTransaction) {
+                    $this->db->commit();
+                }
+                return true;
+            }
+
+            $stmt = $this->db->prepare(
+                "UPDATE users
+                 SET full_name = :full_name, phone = :phone
+                 WHERE id = :member_id AND role = 'Member'"
+            );
+
+            $stmt->execute([
+                'full_name' => $fullName,
+                'phone' => $phone,
+                'member_id' => $memberId
+            ]);
+
+            $this->recordMemberAudit(
+                $actorId,
+                $memberId,
+                'MEMBER_UPDATE',
+                [
+                    'full_name' => $before['full_name'],
+                    'phone' => $before['phone']
+                ],
+                [
+                    'full_name' => $fullName,
+                    'phone' => $phone
+                ]
+            );
+
+            if ($ownsTransaction) {
+                $this->db->commit();
+            }
+
+            return true;
+
+        } catch (Throwable $e) {
+            if ($ownsTransaction && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+
+            throw $e;
+        }
     }
 
 
     // Khóa hoặc mở khóa tài khoản hội viên
     public function updateMemberStatus(
         int $memberId,
-        string $status
+        string $status,
+        int $actorId
     ): bool {
-        // Chỉ cho phép hai trạng thái hợp lệ
-        if (!in_array($status, ['active', 'locked'], true)) {
+        if ($memberId <= 0 || !in_array($status, ['Active', 'Locked'], true)) {
             throw new InvalidArgumentException(
                 'Trang thai tai khoan khong hop le'
             );
         }
 
-        // Kiểm tra hội viên tồn tại
-        if ($this->getMemberById($memberId) === null) {
+        if ($actorId <= 0) {
             throw new InvalidArgumentException(
-                'Khong tim thay hoi vien'
+                'Nguoi thuc hien khong hop le'
             );
         }
 
-        $sql = "UPDATE users
-                SET status = :status
-                WHERE id = :member_id
-                  AND role = 'member'";
+        $ownsTransaction = !$this->db->inTransaction();
 
-        $stmt = $this->db->prepare($sql);
+        if ($ownsTransaction) {
+            $this->db->beginTransaction();
+        }
 
-        return $stmt->execute([
-            'status' => $status,
-            'member_id' => $memberId
-        ]);
+        try {
+            $stmt = $this->db->prepare(
+                "SELECT status FROM users
+                 WHERE id = :member_id AND role = 'Member'
+                 FOR UPDATE"
+            );
+            $stmt->execute(['member_id' => $memberId]);
+
+            $before = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$before) {
+                throw new InvalidArgumentException(
+                    'Khong tim thay hoi vien'
+                );
+            }
+
+            if ($before['status'] === $status) {
+                if ($ownsTransaction) {
+                    $this->db->commit();
+                }
+                return true;
+            }
+
+            $stmt = $this->db->prepare(
+                "UPDATE users SET status = :status
+                 WHERE id = :member_id AND role = 'Member'"
+            );
+
+            $stmt->execute([
+                'status' => $status,
+                'member_id' => $memberId
+            ]);
+
+            $this->recordMemberAudit(
+                $actorId,
+                $memberId,
+                'MEMBER_STATUS_CHANGE',
+                ['status' => $before['status']],
+                ['status' => $status]
+            );
+
+            if ($ownsTransaction) {
+                $this->db->commit();
+            }
+
+            return true;
+
+        } catch (Throwable $e) {
+            if ($ownsTransaction && $this->db->inTransaction()) {
+                $this->db->rollBack();
+            }
+
+            throw $e;
+        }
     }
 
-    // Xem chi tiết hội viên - chỉ Admin
-    public function getMemberDetail(int $memberId): array
-    {
-        if (!isAdmin()) {
-            return [
-                'success' => false,
-                'message' => 'Bạn không có quyền truy cập.'
-            ];
-        }
 
-        if ($memberId <= 0) {
-            return [
-                'success' => false,
-                'message' => 'ID hội viên không hợp lệ.'
-            ];
-        }
+    private function recordMemberAudit(
+        int $actorId,
+        int $memberId,
+        string $action,
+        array $before,
+        array $after
+    ): void {
+        $stmt = $this->db->prepare(
+            "INSERT INTO audit_logs
+                (actor_id, action, entity_type, entity_id,
+                 old_value, new_value)
+             VALUES
+                (:actor_id, :action, 'Member', :entity_id,
+                 :old_value, :new_value)"
+        );
 
-        $member = $this->service->getMemberById($memberId);
-
-        if ($member === null) {
-            return [
-                'success' => false,
-                'message' => 'Không tìm thấy hội viên.'
-            ];
-        }
-
-        return [
-            'success' => true,
-            'data' => $member
-        ];
+        $stmt->execute([
+            'actor_id' => $actorId,
+            'action' => $action,
+            'entity_id' => $memberId,
+            'old_value' => json_encode(
+                $before,
+                JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE
+            ),
+            'new_value' => json_encode(
+                $after,
+                JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE
+            )
+        ]);
     }
 
 }
